@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+@theme {
+  --color-warm-bg: #F7F6F2;
+  --color-stone-bg: #EFEEE9;
+  --color-surface: #FFFFFF;
+  --color-charcoal: #171717;
+  --color-warm-gray: #6F6D68;
+  --color-soft-gray: #9E9C96;
+  --color-border-soft: #DDDCD7;
+  --color-border-subtle: #E8E7E2;
+  --color-cobalt: #3157FF;
+  --color-cobalt-hover: #2745d8;
+  --color-cobalt-light: rgba(49, 87, 255, 0.08);
+  --color-violet: #7657FF;
+  --color-violet-light: rgba(118, 87, 255, 0.08);
+  --color-coral: #FF6B5F;
+  --color-coral-light: rgba(255, 107, 95, 0.1);
+  --color-lime: #B8E94E;
+  --color-lime-light: rgba(184, 233, 78, 0.15);
+  --color-aqua: #38C8C0;
+  --color-aqua-light: rgba(56, 200, 192, 0.12);
+}
+
+@layer base {
+  :root {
+    --bg-primary: #F7F6F2;
+    --bg-secondary: #EFEEE9;
+    --surface: #FFFFFF;
+    --text-primary: #171717;
+    --text-secondary: #6F6D68;
+    --border-soft: #DDDCD7;
+    --cobalt: #3157FF;
+    --violet: #7657FF;
+    --coral: #FF6B5F;
+    --lime: #B8E94E;
+    --aqua: #38C8C0;
+  }
+
+  body {
+    background-color: #F7F6F2;
+    color: #171717;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+}
+
+/* Neutral Luxury Surfaces */
+.luxury-card {
+  background-color: #FFFFFF;
+  border: 1px solid #DDDCD7;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03), 0 6px 16px -4px rgba(23, 23, 23, 0.04);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.luxury-card:hover {
+  border-color: #C8C7C0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05), 0 12px 28px -6px rgba(49, 87, 255, 0.06);
+}
+
+/* AI Command Box Gradient Border */
+.command-box-gradient {
+  position: relative;
+  background: #FFFFFF;
+  border-radius: 1.25rem;
+  box-shadow: 0 4px 20px -2px rgba(23, 23, 23, 0.06), 0 12px 32px -4px rgba(49, 87, 255, 0.04);
+}
+
+.command-box-gradient::before {
+  content: "";
+  position: absolute;
+  inset: -1.5px;
+  border-radius: calc(1.25rem + 1.5px);
+  padding: 1.5px;
+  background: linear-gradient(135deg, rgba(49, 87, 255, 0.35) 0%, rgba(118, 87, 255, 0.25) 50%, rgba(255, 107, 95, 0.25) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.command-box-gradient:focus-within::before {
+  background: linear-gradient(135deg, rgba(49, 87, 255, 0.75) 0%, rgba(118, 87, 255, 0.55) 50%, rgba(255, 107, 95, 0.5) 100%);
+}
+
+/* AI Fluid Glass Orb */
+@keyframes orbFloat {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg) scale(1);
+  }
+  50% {
+    transform: translateY(-8px) rotate(180deg) scale(1.03);
+  }
+}
+
+@keyframes orbPulse {
+  0%, 100% {
+    opacity: 0.85;
+    filter: blur(20px);
+  }
+  50% {
+    opacity: 1;
+    filter: blur(26px);
+  }
+}
+
+@keyframes slowSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.animate-orb-float {
+  animation: orbFloat 8s ease-in-out infinite;
+}
+
+.animate-orb-pulse {
+  animation: orbPulse 4s ease-in-out infinite;
+}
+
+.animate-slow-spin {
+  animation: slowSpin 20s linear infinite;
+}
+
+/* Custom Minimal Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #F7F6F2;
+}
+::-webkit-scrollbar-thumb {
+  background: #DDDCD7;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #B5B4AE;
+}
