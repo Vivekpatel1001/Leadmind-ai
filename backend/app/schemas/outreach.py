@@ -71,6 +71,7 @@ class CallInitiateRequest(BaseModel):
     twilio_account_sid: Optional[str] = None
     twilio_auth_token: Optional[str] = None
     twilio_from_phone: Optional[str] = None
+    twilio_webhook_url: Optional[str] = None
 
 class CallDialogueTurn(BaseModel):
     speaker: str # "ai", "prospect", "system"

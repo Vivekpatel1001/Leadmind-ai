@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Any, Optional
 from backend.app.database.session import get_db
@@ -171,6 +171,77 @@ async def twilio_voice_webhook():
         language="en-US"
     )
     twiml.pause(length=1)
+    return Response(content=str(twiml), media_type="application/xml")
+
+@router.post("/voice/turn")
+async def twilio_voice_turn(
+    SpeechResult: Optional[str] = Form(None),
+    company: Optional[str] = Query("Your Target Business"),
+    prospect: Optional[str] = Query("there"),
+    service: Optional[str] = Query("Graphic Design & Digital Branding"),
+    sender: Optional[str] = Query("Vikram Patel"),
+    company_sender: Optional[str] = Query("Apex Growth Studio"),
+    sender_phone: Optional[str] = Query("+44 20 7946 0999")
+):
+    """Twilio Speech Gathering Webhook: receives real-time speech from physical cellular phone"""
+    from twilio.twiml.voice_response import VoiceResponse, Gather
+    from backend.app.agents.voice_calling_agent import VoiceCallingAgent, sanitize_dialogue_text
+    import urllib.parse
+    
+    twiml = VoiceResponse()
+    
+    if not SpeechResult or not SpeechResult.strip():
+        gather = Gather(
+            input='speech',
+            method='POST',
+            speech_timeout='auto',
+            language='en-US'
+        )
+        gather.say(f"I didn't quite catch that, {prospect}. Did you have a question about {service} for {company}?", voice="Polly.Joanna", language="en-US")
+        twiml.append(gather)
+        return Response(content=str(twiml), media_type="application/xml")
+        
+    req = CallInteractRequest(
+        user_speech=SpeechResult,
+        company_name=company,
+        prospect_name=prospect,
+        sender_company=company_sender,
+        sender_name=sender,
+        service_offered=service,
+        value_proposition="Delivering bespoke brand redesigns and commercial assets that increase customer acquisition by 40%."
+    )
+    result = await VoiceCallingAgent.respond_to_live_speech(req)
+    clean_text = sanitize_dialogue_text(result.ai_response_text)
+    
+    if result.is_forwarded or result.is_deal_closed:
+        twiml.say(clean_text, voice="Polly.Joanna", language="en-US")
+        twiml.say(f"Transferring our line live to {sender} right now. Please hold for two seconds while the bridge connects.", voice="Polly.Joanna", language="en-US")
+        twiml.pause(length=1)
+        twiml.say(f"Thank you for connecting with {company_sender}. Have a wonderful day!", voice="Polly.Joanna", language="en-US")
+        twiml.hangup()
+    else:
+        action_url = (
+            f"/api/v1/outreach/voice/turn"
+            f"?company={urllib.parse.quote(company)}"
+            f"&prospect={urllib.parse.quote(prospect)}"
+            f"&service={urllib.parse.quote(service)}"
+            f"&sender={urllib.parse.quote(sender)}"
+            f"&company_sender={urllib.parse.quote(company_sender)}"
+            f"&sender_phone={urllib.parse.quote(sender_phone)}"
+        )
+        gather = Gather(
+            input='speech',
+            action=action_url,
+            method='POST',
+            speech_timeout='auto',
+            language='en-US'
+        )
+        gather.say(clean_text, voice="Polly.Joanna", language="en-US")
+        twiml.append(gather)
+        # Fallback if prospect says nothing or call concludes
+        twiml.say(f"Thank you for speaking with me, {prospect}. You can reach {sender} directly at {sender_phone}. Have a great day!", voice="Polly.Joanna", language="en-US")
+        twiml.hangup()
+        
     return Response(content=str(twiml), media_type="application/xml")
 
 @router.post("/call/initiate", response_model=CallSessionResponse)

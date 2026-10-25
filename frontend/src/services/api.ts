@@ -221,6 +221,7 @@ export const api = {
     twilio_account_sid?: string;
     twilio_auth_token?: string;
     twilio_from_phone?: string;
+    twilio_webhook_url?: string;
   }): Promise<any> {
     const res = await fetch(`${API_BASE}/outreach/call/initiate`, {
       method: 'POST',

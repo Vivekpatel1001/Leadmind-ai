@@ -18,6 +18,17 @@ from backend.app.schemas.outreach import (
     CallInteractResponse
 )
 
+def matches_any_intent(patterns: List[str], text: str) -> bool:
+    """Helper to match intent keywords accurately with word boundaries to avoid partial substring hits."""
+    text_lower = text.lower()
+    for p in patterns:
+        p_clean = p.lower().strip()
+        if not p_clean:
+            continue
+        if re.search(r'\b' + re.escape(p_clean) + r'\b', text_lower):
+            return True
+    return False
+
 def sanitize_dialogue_text(text: str) -> str:
     """Clean text for natural, pristine spoken voice synthesis without slashes or glitches."""
     if not text:
@@ -69,7 +80,7 @@ def derive_contextual_title(company: str, industry: Optional[str] = None) -> str
 
 class VoiceCallingAgent:
     """
-    Agent 11 — Autonomous B2B Voice Calling & Warm Forwarding Agent
+    Agent 11  -  Autonomous B2B Voice Calling & Warm Forwarding Agent
     Responsibilities:
     - Dial B2B leads or custom direct numbers autonomously using tailored business details & value hooks
     - Support actual real GSM cellular phone calling via Twilio Voice API when credentials are provided
@@ -132,24 +143,59 @@ class VoiceCallingAgent:
         if req.make_real_call and twilio_sid and twilio_token and twilio_from:
             try:
                 from twilio.rest import Client
-                from twilio.twiml.voice_response import VoiceResponse
+                from twilio.twiml.voice_response import VoiceResponse, Gather
+                import urllib.parse
                 client = Client(twilio_sid, twilio_token)
 
                 vr = VoiceResponse()
                 clean_value = sanitize_dialogue_text(req.value_proposition)
                 clean_service = sanitize_dialogue_text(req.service_offered)
 
-                pitch_spoken = (
-                    f"Hi {prospect_name}! This is {req.sender_name} calling from {req.sender_company}. "
-                    f"I am reaching out specifically regarding {company_name}. "
-                    f"We specialize in {clean_service}, and {clean_value} "
-                    f"We have already designed a customized concept preview tailored specifically for {company_name}, "
-                    f"and I would love to share a quick two-minute walkthrough with you whenever you have a moment. "
-                    f"You can call or text me right back on this number, or reach me directly at {req.sender_phone}. "
-                    f"Thank you for your time, {prospect_name}, and have a wonderful day!"
-                )
-                vr.say(pitch_spoken, voice="Polly.Joanna", language="en-US")
-                vr.pause(length=1)
+                webhook_url = (getattr(req, 'twilio_webhook_url', None) or settings.TWILIO_WEBHOOK_URL or '').strip()
+                if webhook_url:
+                    webhook_clean = webhook_url.rstrip('/')
+                    action_url = (
+                        f"{webhook_clean}/api/v1/outreach/voice/turn"
+                        f"?company={urllib.parse.quote(company_name)}"
+                        f"&prospect={urllib.parse.quote(prospect_name)}"
+                        f"&service={urllib.parse.quote(req.service_offered)}"
+                        f"&sender={urllib.parse.quote(req.sender_name)}"
+                        f"&company_sender={urllib.parse.quote(req.sender_company)}"
+                        f"&sender_phone={urllib.parse.quote(req.sender_phone)}"
+                    )
+                    gather = Gather(
+                        input='speech',
+                        action=action_url,
+                        method='POST',
+                        speech_timeout='auto',
+                        language='en-US'
+                    )
+                    gather.say(f"Hi {prospect_name}! Hello, how are you doing today?", voice="Polly.Joanna", language="en-US")
+                    vr.append(gather)
+                    # If caller didn't speak:
+                    vr.say(
+                        f"Hi {prospect_name}, this is {req.sender_name} from {req.sender_company}. "
+                        f"We've prepared a customized concept preview for {company_name} regarding {clean_service}. "
+                        f"Feel free to call or text me right back at {req.sender_phone}. Have a great day!",
+                        voice="Polly.Joanna",
+                        language="en-US"
+                    )
+                else:
+                    # Natural human cadence: warm greeting, 1s pause, followed by conversational pitch and callback invite
+                    vr.say(f"Hi {prospect_name}! Hello, I hope you're having a wonderful day.", voice="Polly.Joanna", language="en-US")
+                    vr.pause(length=1)
+
+                    pitch_spoken = (
+                        f"This is {req.sender_name} calling from {req.sender_company}. "
+                        f"The reason I am reaching out is regarding {company_name}. "
+                        f"We specialize in {clean_service}, and {clean_value} "
+                        f"We have already designed a customized concept preview tailored specifically for {company_name}, "
+                        f"and I would love to share a quick two-minute walkthrough with you whenever you have a moment. "
+                        f"You can call or text me right back on this number, or reach me directly at {req.sender_phone}. "
+                        f"Thank you for your time, {prospect_name}, and have a wonderful day!"
+                    )
+                    vr.say(pitch_spoken, voice="Polly.Joanna", language="en-US")
+                    vr.pause(length=1)
 
                 twilio_call = client.calls.create(
                     to=clean_lead_phone,
@@ -423,16 +469,23 @@ class VoiceCallingAgent:
     async def respond_to_live_speech(cls, req: CallInteractRequest) -> CallInteractResponse:
         """
         Agent 11 Live 2-Way Conversational Engine:
-        Takes the user's real spoken words from microphone and generates an immediate, charismatic SDR rebuttal / answer.
+        Takes the user's real spoken words (from microphone or Twilio phone line)
+        and generates an immediate, natural, human-like response that answers questions,
+        handles objections, and converses warmly before pitching and closing.
         """
         user_spoken = req.user_speech.strip()
+        prospect_name = req.prospect_name or "there"
+        company_name = req.company_name or "your business"
+        clean_service = sanitize_dialogue_text(req.service_offered)
+        clean_value = sanitize_dialogue_text(req.value_proposition)
+        
         if not user_spoken:
             return CallInteractResponse(
-                ai_response_text=f"I am still here with you, {req.prospect_name}. Did you have a question about how we can help {req.company_name}?",
+                ai_response_text=f"I'm still right here with you, {prospect_name}! Did you have any questions about how we can help {company_name}?",
                 sentiment="neutral"
             )
 
-        # 1. If Gemini is available, use real-time conversational intelligence
+        # 1. If Gemini is available, use real-time conversational intelligence with human sales persona
         if settings.GEMINI_API_KEY:
             try:
                 import google.generativeai as genai
@@ -445,29 +498,36 @@ class VoiceCallingAgent:
                 ])
 
                 prompt = f"""
-                You are an elite, highly persuasive AI Sales Representative for '{req.sender_company}'.
-                Your human growth director is '{req.sender_name}'.
-                You are on a LIVE phone call with '{req.prospect_name}' from '{req.company_name}'.
-                Service Offered: '{req.service_offered}'.
-                Value Prop: '{req.value_proposition}'.
+                You are Alex, an elite, charismatic, and genuinely empathetic human sales representative calling from '{req.sender_company}'.
+                Your human growth director is '{req.sender_name}' (reach on {req.sender_phone if hasattr(req, 'sender_phone') else '+44 20 7946 0999'}).
+                You are on a LIVE two-way phone call with '{prospect_name}' from '{company_name}'.
+                Service Offered: '{clean_service}'.
+                Value Prop: '{clean_value}'.
 
-                RECENT CONVERSATION:
+                RECENT CONVERSATION HISTORY:
                 {history_context}
 
                 PROSPECT JUST SAID OVER THE PHONE:
                 "{user_spoken}"
 
-                INSTRUCTIONS:
-                - Give a concise (1 to 2 sentences max), natural, conversational, charismatic response.
-                - DO NOT use slashes (/), URLs, bullet points, or markdown.
-                - Address whatever objection, question, or comment they just made directly.
-                - If they are skeptical, offer a free 5-minute concept preview with zero obligations.
-                - If they agree or sound interested, offer to connect them live with {req.sender_name} or book a 10-minute demo.
-                - Return valid JSON with:
-                  "response": "Spoken response text",
-                  "sentiment": "interested" | "objection" | "positive" | "closed",
+                CONVERSATIONAL GUIDELINES:
+                1. Act like a real, polite, charismatic human sales rep. Never sound like a robot or a scripted IVR.
+                2. If the prospect greets you ('hi', 'hello', 'good morning', 'how are you', 'I am good'), acknowledge them warmly first, ask how their day is going, and politely explain the purpose of your call.
+                3. If the prospect asks ANY question (e.g., pricing, how it works, what services you provide, are you an AI, where you are located, turnaround time, can you email info), DIRECTLY ANSWER THE QUESTION in 1 to 2 engaging, natural sentences. Do not dodge questions!
+                4. Keep answers concise: 1 to 3 sentences maximum (20 to 45 words), suitable for natural spoken speech.
+                5. Do NOT use bullet points, markdown, emojis, slashes (/), URLs, or complex numbers.
+                6. If they are busy or not interested, be gracious and offer to email a 2-minute visual preview with zero pressure.
+                7. If they agree, say yes, or express interest, offer to connect them live with {req.sender_name} right now.
+
+                Return strictly valid JSON:
+                {{
+                  "response": "Natural spoken response text",
+                  "sentiment": "interested" | "objection" | "positive" | "closed" | "neutral",
                   "is_deal_closed": true/false,
-                  "is_forwarded": true/false
+                  "is_forwarded": true/false,
+                  "objection_detected": "string or null",
+                  "objection_rebuttal": "string or null"
+                }}
                 """
                 resp = await model.generate_content_async(prompt)
                 clean_text = resp.text.strip()
@@ -481,47 +541,249 @@ class VoiceCallingAgent:
                     ai_response_text=sanitize_dialogue_text(data.get("response", "")),
                     sentiment=data.get("sentiment", "positive"),
                     is_deal_closed=bool(data.get("is_deal_closed", False)),
-                    is_forwarded=bool(data.get("is_forwarded", False))
+                    is_forwarded=bool(data.get("is_forwarded", False)),
+                    objection_detected=data.get("objection_detected"),
+                    objection_rebuttal=data.get("objection_rebuttal")
                 )
             except Exception as e:
                 print(f"[VoiceCallingAgent Live Turn] Gemini note: {e}")
 
-        # 2. Intelligent Rule-Based Dialogue Engine
-        user_lower = user_spoken.lower()
-        
-        # Objections
-        if any(k in user_lower for k in ["not interested", "no thanks", "busy", "don't want", "stop calling", "remove"]):
+        # 2. Comprehensive Human Sales Rule-Based Intelligence Engine
+        # A. Identity & Purpose Questions ("Who is this?", "Who are you?", "Why are you calling?")
+        if matches_any_intent([
+            "who is this", "who are you", "who's this", "who's calling", "whos calling",
+            "what company", "which company", "why are you calling", "why you calling",
+            "what is this about", "what's this about", "what is this regarding", "what do you want",
+            "how did you get my number", "where did you get my number", "why call me"
+        ], user_spoken):
             return CallInteractResponse(
-                ai_response_text=f"I completely understand, {req.prospect_name}. We know how busy operations are at {req.company_name}. What if we just email you a complimentary 2-minute design preview with zero commitment so you can review at your convenience?",
-                sentiment="objection",
-                objection_detected="Time constraint / initial resistance"
-            )
-        elif any(k in user_lower for k in ["already have", "agency", "partner", "in-house", "team"]):
-            return CallInteractResponse(
-                ai_response_text=f"Totally respect that! Most successful brands like {req.company_name} already have partners. What makes us unique is our performance turnaround, and we would love to share a fresh outside perspective whenever you are ready.",
-                sentiment="objection",
-                objection_detected="Existing vendor relationship"
-            )
-        elif any(k in user_lower for k in ["who is this", "who are you", "what is this about", "why are you calling"]):
-            return CallInteractResponse(
-                ai_response_text=f"Great question! I am calling from {req.sender_company} on behalf of our growth director, {req.sender_name}. We specialize in {sanitize_dialogue_text(req.service_offered)} and noticed a great opportunity to help {req.company_name} scale customer acquisition.",
+                ai_response_text=(
+                    f"Great question! My name is {req.sender_name} calling from {req.sender_company}. "
+                    f"We noticed {company_name} while analyzing top businesses in your area, and we put together a customized concept for {clean_service}. "
+                    f"Do you have just two quick minutes to see how it can help you win more customers?"
+                ),
                 sentiment="neutral"
             )
-        elif any(k in user_lower for k in ["how much", "cost", "price", "pricing", "expensive"]):
+
+        # B. Differentiation / Why you (check before general greetings)
+        if matches_any_intent([
+            "why should i choose you", "why should we choose you", "why should we hire you",
+            "why should i hire you", "why you", "competitor", "competitors", "other agencies",
+            "other agency", "what makes you different", "what's the difference"
+        ], user_spoken):
             return CallInteractResponse(
-                ai_response_text=f"Our engagements are fully customized based on {req.company_name}'s scope, and we always ensure a clear 3x to 5x return on investment. In fact, {req.sender_name} can break down exact transparent pricing in under two minutes if you like!",
+                ai_response_text=(
+                    f"Unlike traditional agencies that charge huge upfront retainers with no guarantees, we deliver ready-to-launch prototypes within 48 hours "
+                    f"and tie our work directly to measurable revenue growth for {company_name}. That means zero risk for you."
+                ),
                 sentiment="interested"
             )
-        elif any(k in user_lower for k in ["yes", "sure", "okay", "tell me more", "sounds good", "interested", "connect", "transfer"]):
+
+        # C. Greetings & How Are You ("How are you?", "How's it going?", "I am good", "Doing well", "Hi", "Hello")
+        if matches_any_intent([
+            "how are you", "how are you doing", "how's it going", "hows it going", "how are things", "how do you do"
+        ], user_spoken):
             return CallInteractResponse(
-                ai_response_text=f"That is fantastic, {req.prospect_name}! {req.sender_name} is in the office and ready on our direct line right now. Let me connect our call directly so you can lock in your priority slot!",
+                ai_response_text=(
+                    f"I'm doing fantastic, thank you so much for asking, {prospect_name}! "
+                    f"My name is {req.sender_name} with {req.sender_company}. We've been admiring {company_name} and put together a few ideas on {clean_service} "
+                    f"that could really help increase your customer bookings. Do you have just two minutes to chat?"
+                ),
+                sentiment="positive"
+            )
+
+        if matches_any_intent([
+            "i am good", "i'm good", "doing good", "doing well", "i am doing well", "i'm doing well",
+            "pretty good", "all good", "fine thanks", "i am fine", "i'm fine", "great thanks"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"Awesome to hear! My name is {req.sender_name} calling from {req.sender_company}. "
+                    f"We noticed {company_name} online and saw a really exciting opportunity to implement {clean_service} to help you get more clients. "
+                    f"Do you have just two quick minutes?"
+                ),
+                sentiment="positive"
+            )
+
+        # D. Pricing & Cost Questions ("How much does it cost?", "Pricing?", "Rates?")
+        if matches_any_intent([
+            "how much", "cost", "price", "pricing", "rate", "rates", "quote",
+            "expensive", "fees", "fee", "budget", "package", "packages", "how much is it"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"Great question! Our pricing is completely modular and tailored to {company_name}'s exact scope - we strictly design packages "
+                    f"to guarantee a 3x to 5x return on investment. In fact, {req.sender_name} can give you an exact transparent price breakdown in under two minutes if you like!"
+                ),
+                sentiment="interested"
+            )
+
+        # E. Services & Offering ("What do you do?", "What services?", "What's the offer?")
+        if matches_any_intent([
+            "what do you do", "what services", "what service", "what are you offering", "what do you offer",
+            "tell me about your product", "what is your product", "what's the offer", "how can you help",
+            "what kind of work", "what do you mean"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"We specialize in {clean_service}. In short: {clean_value} "
+                    f"We handle the entire creative strategy and asset creation within 48 hours so you see immediate revenue growth. "
+                    f"Does that sound like something relevant to {company_name}'s goals right now?"
+                ),
+                sentiment="interested"
+            )
+
+        # F. Process & Workflow ("How does it work?", "What is the process?")
+        if matches_any_intent([
+            "how does it work", "how do you work", "how it works", "what is the process", "what's the process",
+            "how does the process work", "how do we start", "what are the steps", "workflow", "how does that work", "process"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"It's super easy! First, we do a quick brand and performance review of {company_name}. "
+                    f"Second, we deliver ready-to-launch assets within 48 hours. "
+                    f"Third, you review and launch with zero long-term lock-in. How does that workflow sound to you?"
+                ),
+                sentiment="interested"
+            )
+
+        # G. Turnaround & Speed ("How long does it take?", "Turnaround time?")
+        if matches_any_intent([
+            "how long", "turnaround", "timeline", "how fast", "how quickly", "when will it be ready", "how many days"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"We move fast! We deliver your first customized concepts in just 48 to 72 hours. "
+                    f"That's 5 times faster than traditional agencies with guaranteed high quality. Would you like to see a sample concept for {company_name}?"
+                ),
+                sentiment="interested"
+            )
+
+        # H. AI or Human Identity ("Are you an AI?", "Are you a robot?")
+        if matches_any_intent([
+            "are you an ai", "are you ai", "are you a bot", "are you a robot", "is this an ai",
+            "is this a bot", "is this automated", "are you real", "are you human", "am i talking to a robot"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"Haha, good ear! Yes, I'm an AI voice assistant working directly alongside our director {req.sender_name} at {req.sender_company}. "
+                    f"I'm here to chat, answer your questions, and connect you with {req.sender_name} if you like our concepts. Pretty neat, right? "
+                    f"Do you have two minutes to check out what we designed for {company_name}?"
+                ),
+                sentiment="positive"
+            )
+
+        # I. Location & Office ("Where are you located?", "Where are you?")
+        if matches_any_intent([
+            "where are you located", "where are you based", "where are you", "where is your office",
+            "which country", "which city", "where are you calling from", "where's your office"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"Our agency is based out of London and Vancouver, but we work remotely with high-growth businesses and brands across the globe, "
+                    f"including right in your region. Where are you tuned in from today?"
+                ),
+                sentiment="neutral"
+            )
+
+        # J. Portfolio, Proof & Case Studies ("Can I see past work?", "Do you have examples?")
+        if matches_any_intent([
+            "portfolio", "examples", "case studies", "case study", "samples", "past work",
+            "show me", "proof", "clients", "track record", "results", "previous work"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"Absolutely! We have dozens of recent case studies showing an average 40% jump in customer conversions for businesses like {company_name}. "
+                    f"We can send a direct portfolio link or do a quick 5-minute screen share with {req.sender_name}. Which works better for you?"
+                ),
+                sentiment="interested"
+            )
+
+        # K. Email & Written Requests ("Can you send an email?", "Email me the info")
+        if matches_any_intent([
+            "send me an email", "email me", "send email", "can you email", "send details",
+            "send info", "whatsapp", "inbox", "mail me", "send a message"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"I would love to! I can send our 2-minute visual walkthrough and pricing overview straight to your inbox. "
+                    f"What is the best email address for you, or should I send it to your main business email?"
+                ),
+                sentiment="interested"
+            )
+
+        # L. Busy / Time Constraint ("I'm busy", "Call me back later")
+        if matches_any_intent([
+            "busy", "in a meeting", "can't talk", "cant talk", "call me later", "call later",
+            "not a good time", "bad time", "driving", "working right now"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"I completely understand, {prospect_name}! You're busy running {company_name}. "
+                    f"What is a better time later today or tomorrow for a quick 2-minute ring?"
+                ),
+                sentiment="objection",
+                objection_detected="Time constraint"
+            )
+
+        # M. Existing Vendor / In-House Team ("We already have an agency / team")
+        if matches_any_intent([
+            "already have", "already working with", "in-house", "team", "agency", "partner", "designer", "vendor"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"Totally respect that! Most successful brands like {company_name} already have great partners. "
+                    f"We often step in for specialized overflow or high-converting campaigns. Would you be open to having our 2-minute concept preview on file as a benchmark?"
+                ),
+                sentiment="objection",
+                objection_detected="Existing vendor"
+            )
+
+        # N. Direct Rejection ("Not interested", "No thanks")
+        if matches_any_intent([
+            "not interested", "no thanks", "no thank you", "don't want", "dont want", "stop calling", "remove me", "not right now"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"No problem at all, {prospect_name}, I appreciate your honesty! Before I let you go, could I just shoot over a 2-minute email overview "
+                    f"with zero commitment so you have our info if your needs ever change?"
+                ),
+                sentiment="objection",
+                objection_detected="Initial resistance"
+            )
+
+        # O. Positive Agreement, Interest & Warm Live Transfer ("Yes", "Sure", "Sounds good", "Connect me")
+        if matches_any_intent([
+            "yes", "sure", "okay", "sounds good", "tell me more", "interested", "connect me",
+            "transfer me", "let's do it", "lets do it", "let's talk", "lets talk", "let's connect",
+            "patch through", "go ahead", "patch me through", "connect us"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"Fantastic, {prospect_name}! {req.sender_name} is in the office and ready on our direct line right now. "
+                    f"Let me connect our call directly so you can see the custom concept live - holding for just two seconds!"
+                ),
                 sentiment="positive",
                 is_deal_closed=True,
                 is_forwarded=True
             )
-        else:
+
+        # P. Hello / Hi
+        if matches_any_intent(["hello", "hi", "hey", "good morning", "good afternoon", "good evening"], user_spoken):
             return CallInteractResponse(
-                ai_response_text=f"That makes total sense, {req.prospect_name}. Our primary goal is simply helping {req.company_name} capture more clients with {sanitize_dialogue_text(req.service_offered)}. Would you be open to a quick 5-minute concept walkthrough this week?",
+                ai_response_text=(
+                    f"Hi {prospect_name}! Great to connect with you. This is {req.sender_name} from {req.sender_company}. "
+                    f"We specialize in {clean_service} and wanted to share a quick custom concept we drafted for {company_name}. "
+                    f"Do you have two minutes to chat?"
+                ),
                 sentiment="positive"
             )
 
+        # Q. Intelligent Contextual Fallback
+        return CallInteractResponse(
+            ai_response_text=(
+                f"I completely hear you, {prospect_name}. Our primary focus is simply helping {company_name} win more clients with {clean_service}. "
+                f"Would you be open to a quick 2-minute concept preview this week?"
+            ),
+            sentiment="positive"
+        )

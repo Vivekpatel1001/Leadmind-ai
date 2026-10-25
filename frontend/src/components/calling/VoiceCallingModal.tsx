@@ -77,6 +77,7 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
   const [twilioSid, setTwilioSid] = useState<string>('');
   const [twilioToken, setTwilioToken] = useState<string>('');
   const [twilioFromPhone, setTwilioFromPhone] = useState<string>('+12362044214');
+  const [twilioWebhookUrl, setTwilioWebhookUrl] = useState<string>('');
 
   const [step, setStep] = useState<CallStep>('setup');
   const [callSession, setCallSession] = useState<CallSessionResponse | null>(null);
@@ -397,7 +398,8 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
         make_real_call: callingMode === 'real_gsm',
         twilio_account_sid: twilioSid || undefined,
         twilio_auth_token: twilioToken || undefined,
-        twilio_from_phone: twilioFromPhone || undefined
+        twilio_from_phone: twilioFromPhone || undefined,
+        twilio_webhook_url: twilioWebhookUrl || undefined
       });
 
       await new Promise(res => setTimeout(res, 5200));
@@ -428,8 +430,8 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
         };
         const initialAiGreeting: CallDialogueTurn = {
           speaker: 'ai',
-          text: `Hello, good day! Am I speaking with ${targetContact} at ${targetCompany}?`,
-          sentiment: 'neutral',
+          text: `Hi ${targetContact || 'there'}! Hello, how are you doing today?`,
+          sentiment: 'positive',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         };
 
@@ -703,6 +705,18 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
                             placeholder="+12362044214"
                             value={twilioFromPhone}
                             onChange={(e) => setTwilioFromPhone(e.target.value)}
+                            className="w-full bg-[#F7F6F2] border border-[#DDDCD7] rounded-lg px-2.5 py-1.5 text-xs text-[#171717] focus:outline-none focus:border-[#7657FF]"
+                          />
+                        </div>
+                        <div className="sm:col-span-3 pt-1">
+                          <label className="text-[10px] font-bold text-[#6F6D68] uppercase block mb-1">
+                            Twilio Webhook URL (Optional for 2-way cellular phone speech via ngrok/localtunnel)
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. https://your-domain.loca.lt"
+                            value={twilioWebhookUrl}
+                            onChange={(e) => setTwilioWebhookUrl(e.target.value)}
                             className="w-full bg-[#F7F6F2] border border-[#DDDCD7] rounded-lg px-2.5 py-1.5 text-xs text-[#171717] focus:outline-none focus:border-[#7657FF]"
                           />
                         </div>
@@ -1075,22 +1089,36 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
                   </div>
 
                   {/* Quick Speech Chips */}
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {[
-                      "Yes, who is this?",
-                      "We already have an agency",
-                      "How much does it cost?",
-                      "Sounds interesting, let's talk!"
-                    ].map((phrase, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => handleUserSpeechSubmit(phrase)}
-                        className="px-2.5 py-1 rounded-md bg-[#F7F6F2] hover:bg-[#3157FF] text-[#171717] hover:text-white text-[11px] font-medium border border-[#DDDCD7] transition-all cursor-pointer"
-                      >
-                        "{phrase}"
-                      </button>
-                    ))}
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between text-[10px] text-[#6F6D68] font-bold uppercase tracking-wider">
+                      <span>Quick Prompts (Click or speak directly into mic):</span>
+                      <span className="text-[#3157FF] font-semibold lowercase">answers questions & pitches naturally</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        "Hi! I'm good, who is this?",
+                        "Hello, what is this regarding?",
+                        "How much does your service cost?",
+                        "What do you guys actually do?",
+                        "How does the process work?",
+                        "Are you an AI or a real human?",
+                        "Can you send an email with details?",
+                        "Can I see your portfolio or past work?",
+                        "Why should we choose you?",
+                        "We already have an agency",
+                        "I'm busy, call me later",
+                        "Sounds great, let's connect!"
+                      ].map((phrase, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => handleUserSpeechSubmit(phrase)}
+                          className="px-2.5 py-1 rounded-md bg-[#F7F6F2] hover:bg-[#3157FF] text-[#171717] hover:text-white text-[11px] font-medium border border-[#DDDCD7] transition-all cursor-pointer shadow-xs"
+                        >
+                          "{phrase}"
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Text Input Fallback */}
