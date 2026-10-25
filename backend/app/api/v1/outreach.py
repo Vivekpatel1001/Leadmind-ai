@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Any, Optional
 from backend.app.database.session import get_db
@@ -131,6 +131,48 @@ async def dispatch_outreach(
     return result
 
 # --- Agent 11: AI Voice Calling & Warm Live Forwarding ---
+@router.get("/twilio/status")
+async def get_twilio_status():
+    """Check Twilio account connectivity, active caller ID number, and verified test numbers"""
+    from backend.app.core.config import settings
+    sid = settings.TWILIO_ACCOUNT_SID
+    token = settings.TWILIO_AUTH_TOKEN
+    phone = settings.TWILIO_PHONE_NUMBER
+    if not sid or not token:
+        return {"configured": False, "message": "Twilio Account SID or Auth Token missing."}
+    
+    try:
+        from twilio.rest import Client
+        client = Client(sid, token)
+        account = client.api.accounts(sid).fetch()
+        verified = [v.phone_number for v in client.outgoing_caller_ids.list()]
+        incoming = [i.phone_number for i in client.incoming_phone_numbers.list()]
+        return {
+            "configured": True,
+            "status": "active",
+            "account_name": account.friendly_name,
+            "account_type": account.type,
+            "from_phone": phone or (incoming[0] if incoming else None),
+            "incoming_numbers": incoming,
+            "verified_caller_ids": verified
+        }
+    except Exception as e:
+        return {"configured": False, "error": str(e)}
+
+@router.post("/voice")
+@router.get("/voice")
+async def twilio_voice_webhook():
+    """TwiML webhook endpoint for incoming calls to the Twilio number (as in Twilio Docs)"""
+    from twilio.twiml.voice_response import VoiceResponse
+    twiml = VoiceResponse()
+    twiml.say(
+        "Hello from LeadMind AI! Your autonomous AI voice calling agent is connected and fully operational. Have a wonderful day!",
+        voice="alice",
+        language="en-US"
+    )
+    twiml.pause(length=1)
+    return Response(content=str(twiml), media_type="application/xml")
+
 @router.post("/call/initiate", response_model=CallSessionResponse)
 async def initiate_voice_call(
     req: CallInitiateRequest,

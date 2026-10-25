@@ -50,6 +50,7 @@ htmlcov/
 scratch/
 tmp/
 temp/
+Leadmind-ai/
 
 # IDE and operating system files
 .DS_Store

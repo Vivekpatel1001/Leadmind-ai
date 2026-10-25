@@ -199,6 +199,12 @@ export const api = {
   },
 
   // Agent 11: AI Voice Calling & Warm Forwarding
+  async getTwilioStatus(): Promise<any> {
+    const res = await fetch(`${API_BASE}/outreach/twilio/status`);
+    if (!res.ok) throw new Error('Failed to fetch Twilio status');
+    return res.json();
+  },
+
   async initiateVoiceCall(payload: {
     lead_id?: string;
     lead_company: string;

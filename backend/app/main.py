@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select, func
 
@@ -171,3 +171,16 @@ async def root():
         "docs": "/docs",
         "api_v1": settings.API_V1_STR
     }
+
+@app.post("/voice")
+@app.get("/voice")
+async def root_twilio_voice():
+    from twilio.twiml.voice_response import VoiceResponse
+    twiml = VoiceResponse()
+    twiml.say(
+        "Hello from LeadMind AI! Your autonomous AI voice calling agent is connected and fully operational. Have a wonderful day!",
+        voice="alice",
+        language="en-US"
+    )
+    twiml.pause(length=1)
+    return Response(content=str(twiml), media_type="application/xml")
