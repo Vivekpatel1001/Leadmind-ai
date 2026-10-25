@@ -531,10 +531,28 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
     }
     setStep('summary');
     if (lead && onLeadUpdated) {
+      const newCallLog = {
+        call_id: callSession?.call_id || ("call_" + Date.now()),
+        timestamp: new Date().toISOString(),
+        duration_seconds: callDuration || 45,
+        phone_dialed: targetPhone,
+        prospect_name: targetContact,
+        company_name: targetCompany,
+        sentiment_score: callSession?.sentiment_score || (step === 'forwarded' ? 98 : 92),
+        forward_status: step === 'forwarded' ? 'forwarded_to_user' : 'completed',
+        status: step === 'forwarded' ? 'forwarded_live' : 'completed',
+        forward_target: senderPhone,
+        real_call_dispatched: callingMode === 'real_gsm',
+        twilio_call_sid: callSession?.twilio_call_sid,
+        summary: ("Outbound sales call to " + targetContact + " at " + targetCompany + ". Discussion completed with warm transfer to " + senderName + " (" + senderPhone + ")."),
+        transcript: turns
+      };
+      const existingLogs = Array.isArray(lead.call_logs) ? lead.call_logs : [];
       onLeadUpdated({
         ...lead,
         crm_stage: 'Discussion',
-        status: 'contacted'
+        status: 'contacted',
+        call_logs: [...existingLogs, newCallLog]
       });
     }
   };

@@ -42,6 +42,7 @@ export interface Lead {
   decision_makers?: DecisionMaker[];
   pitches?: PitchPackage;
   outreach_logs?: OutreachLogItem[];
+  call_logs?: any[];
   duplicate_status: string;
   created_at: string;
   updated_at: string;
