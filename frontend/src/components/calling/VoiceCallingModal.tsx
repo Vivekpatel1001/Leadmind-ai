@@ -77,7 +77,7 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
   const [twilioSid, setTwilioSid] = useState<string>('');
   const [twilioToken, setTwilioToken] = useState<string>('');
   const [twilioFromPhone, setTwilioFromPhone] = useState<string>('+12362044214');
-  const [twilioWebhookUrl, setTwilioWebhookUrl] = useState<string>('');
+  const [twilioWebhookUrl, setTwilioWebhookUrl] = useState<string>('https://nice-trains-spend.loca.lt');
 
   const [step, setStep] = useState<CallStep>('setup');
   const [callSession, setCallSession] = useState<CallSessionResponse | null>(null);
@@ -92,11 +92,13 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
   const [userSpeechInput, setUserSpeechInput] = useState<string>('');
   const [isAiThinking, setIsAiThinking] = useState<boolean>(false);
   const [speechRecognitionSupported, setSpeechRecognitionSupported] = useState<boolean>(true);
+  const [interimTranscript, setInterimTranscript] = useState<string>('');
+  const speechSilenceTimerRef = useRef<any>(null);
 
   // User Business Profile configuration
-  const [senderCompany, setSenderCompany] = useState('Apex Growth Studio');
-  const [senderName, setSenderName] = useState('Vikram Patel');
-  const [senderPhone, setSenderPhone] = useState('+44 20 7946 0999');
+  const [senderCompany, setSenderCompany] = useState('LeadMind AI');
+  const [senderName, setSenderName] = useState('Vivek Patel');
+  const [senderPhone, setSenderPhone] = useState('+91 9408082933');
   const [serviceOffered, setServiceOffered] = useState('Graphic Design & Commercial Brand Revamp');
   const [valueProposition, setValueProposition] = useState(
     'Delivering bespoke brand redesigns and commercial assets that increase customer acquisition by 40%.'
@@ -239,7 +241,7 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
     });
   };
 
-  // Start Live Microphone Speech Recognition
+  // Start Live Microphone Speech Recognition (Continuous with Generous Response Time)
   const startSpeechRecognition = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -248,29 +250,70 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
     }
 
     try {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.abort(); } catch (e) {}
+      }
+
       const recognition = new SpeechRecognition();
       recognitionRef.current = recognition;
-      recognition.continuous = false;
-      recognition.interimResults = false;
+      recognition.continuous = true;
+      recognition.interimResults = true;
       recognition.lang = 'en-US';
 
       recognition.onstart = () => {
         setIsListeningToUser(true);
+        setInterimTranscript('');
       };
 
       recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript) {
-          handleUserSpeechSubmit(transcript);
+        let interim = '';
+        let final = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            final += event.results[i][0].transcript;
+          } else {
+            interim += event.results[i][0].transcript;
+          }
+        }
+
+        const currentSpoken = (final || interim).trim();
+        if (currentSpoken) {
+          setInterimTranscript(currentSpoken);
+        }
+
+        // Generous silence debounce: give the user 2.5 seconds of silence before auto-submitting
+        if (speechSilenceTimerRef.current) {
+          clearTimeout(speechSilenceTimerRef.current);
+        }
+
+        if (final.trim()) {
+          speechSilenceTimerRef.current = setTimeout(() => {
+            if (final.trim()) {
+              handleUserSpeechSubmit(final.trim());
+            }
+          }, 2400);
         }
       };
 
       recognition.onerror = (event: any) => {
-        setIsListeningToUser(false);
+        if (event.error !== 'no-speech') {
+          console.warn('Speech recognition warning:', event.error);
+        }
       };
 
       recognition.onend = () => {
-        setIsListeningToUser(false);
+        // Auto-reconnect recognition if call is active and AI is not speaking
+        if (currentStepRef.current === 'connected' && !isPlayingTurnRef.current) {
+          try {
+            recognition.start();
+            setIsListeningToUser(true);
+          } catch (e) {
+            setIsListeningToUser(false);
+          }
+        } else {
+          setIsListeningToUser(false);
+        }
       };
 
       recognition.start();
@@ -281,14 +324,16 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
   };
 
   const stopSpeechRecognition = () => {
+    if (speechSilenceTimerRef.current) {
+      clearTimeout(speechSilenceTimerRef.current);
+    }
     try {
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        recognitionRef.current.abort();
       }
-    } catch (e) {
-      // Ignored
-    }
+    } catch (e) {}
     setIsListeningToUser(false);
+    setInterimTranscript('');
   };
 
   // User speaks or sends a response to the AI in real time
@@ -297,6 +342,9 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
     if (!textToSend.trim() || isAiThinking) return;
 
     setUserSpeechInput('');
+    setInterimTranscript('');
+    if (speechSilenceTimerRef.current) clearTimeout(speechSilenceTimerRef.current);
+    isPlayingTurnRef.current = true;
     stopSpeechRecognition();
 
     const newProspectTurn: CallDialogueTurn = {
@@ -339,6 +387,7 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
 
       // AI speaks out loud to the user!
       await speakText(response.ai_response_text, 'ai');
+      isPlayingTurnRef.current = false;
 
       if (response.is_forwarded || response.is_deal_closed) {
         setStep('forwarded');
@@ -1060,60 +1109,136 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
                 <div ref={transcriptBottomRef} />
               </div>
 
-              {/* 🎙️ LIVE 2-WAY INTERACTIVE MICROPHONE / INPUT BAR */}
+              {/* 🎙️ LIVE 2-WAY INTERACTIVE MICROPHONE / INPUT BAR WITH 4 GUIDED STAGES */}
               {callingMode === 'live_interactive' && step === 'connected' && (
-                <div className="p-3.5 rounded-2xl bg-white border-2 border-[#3157FF] shadow-sm space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#171717] flex items-center gap-1.5">
-                      <Mic className={`w-3.5 h-3.5 ${isListeningToUser ? 'text-[#FF6B5F] animate-pulse' : 'text-[#3157FF]'}`} />
-                      <span>{isListeningToUser ? 'Listening to your voice... Speak now!' : 'Speak into Microphone or Type Answer:'}</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (isListeningToUser) {
-                          stopSpeechRecognition();
-                        } else {
-                          startSpeechRecognition();
-                        }
-                      }}
-                      className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                        isListeningToUser
-                          ? 'bg-[#FF6B5F] text-white shadow-sm animate-pulse'
-                          : 'bg-[#3157FF]/10 text-[#3157FF] hover:bg-[#3157FF] hover:text-white'
-                      }`}
-                    >
-                      {isListeningToUser ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
-                      <span>{isListeningToUser ? 'Stop Mic' : 'Start Mic'}</span>
-                    </button>
+                <div className="p-4 rounded-3xl bg-white border-2 border-[#3157FF] shadow-lg space-y-3">
+                  
+                  {/* Guided 4-Stage Sales Progress Header */}
+                  <div className="grid grid-cols-4 gap-2 text-center text-[10px] font-bold">
+                    <div className="p-2 rounded-xl bg-[#3157FF]/10 text-[#3157FF] border border-[#3157FF]/25 shadow-xs">
+                      1. Greet & Check-in
+                    </div>
+                    <div className="p-2 rounded-xl bg-[#7657FF]/10 text-[#7657FF] border border-[#7657FF]/25 shadow-xs">
+                      2. Client's Business
+                    </div>
+                    <div className="p-2 rounded-xl bg-[#F59E0B]/10 text-[#B45309] border border-[#F59E0B]/25 shadow-xs">
+                      3. Services & Pitch
+                    </div>
+                    <div className="p-2 rounded-xl bg-[#10B981]/15 text-[#047857] border border-[#10B981]/30 shadow-xs">
+                      4. Transfer to Owner (+919408082933)
+                    </div>
                   </div>
 
-                  {/* Quick Speech Chips */}
-                  <div className="space-y-1.5 pt-1">
-                    <div className="flex items-center justify-between text-[10px] text-[#6F6D68] font-bold uppercase tracking-wider">
-                      <span>Quick Prompts (Click or speak directly into mic):</span>
-                      <span className="text-[#3157FF] font-semibold lowercase">answers questions & pitches naturally</span>
+                  {/* Live Microphone Status Banner */}
+                  <div className="flex items-center justify-between p-3 rounded-2xl bg-[#F7F6F2] border border-[#DDDCD7]">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-3.5 h-3.5 rounded-full ${isListeningToUser ? 'bg-[#FF6B5F] animate-ping' : 'bg-[#DDDCD7]'}`} />
+                      <div>
+                        <span className="text-xs font-bold text-[#171717] block">
+                          {isListeningToUser ? '🎙️ Microphone is LIVE & Listening (Take your time, speak naturally!)' : 'Microphone Paused'}
+                        </span>
+                        <span className="text-[11px] text-[#6F6D68]">
+                          {interimTranscript ? `Hearing you say: "${interimTranscript}"` : 'AI is listening for your response or question...'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {interimTranscript && (
+                        <button
+                          type="button"
+                          onClick={() => handleUserSpeechSubmit(interimTranscript)}
+                          className="px-3 py-1.5 rounded-xl bg-[#10B981] hover:bg-[#059669] text-white text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Send Now</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isListeningToUser) {
+                            stopSpeechRecognition();
+                          } else {
+                            startSpeechRecognition();
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                          isListeningToUser
+                            ? 'bg-[#FF6B5F] text-white shadow-sm'
+                            : 'bg-[#3157FF] text-white hover:bg-[#2745d8]'
+                        }`}
+                      >
+                        {isListeningToUser ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                        <span>{isListeningToUser ? 'Pause Mic' : 'Resume Mic'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 4 Guided Primary Stage Action Buttons */}
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] text-[#6F6D68] font-bold uppercase tracking-wider flex items-center justify-between">
+                      <span>4-Stage Guided Sales Flow (Click or Speak Aloud):</span>
+                      <span className="text-[#3157FF]">Interactive AI SDR</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleUserSpeechSubmit("Hi! I'm good, who is this?")}
+                        className="p-2.5 rounded-xl bg-[#3157FF]/5 hover:bg-[#3157FF] text-[#171717] hover:text-white border border-[#3157FF]/20 text-left transition-all cursor-pointer shadow-xs group"
+                      >
+                        <div className="text-[10px] font-bold text-[#3157FF] group-hover:text-white uppercase">Stage 1 · Greet & Inquire</div>
+                        <div className="text-xs font-semibold mt-0.5">"Hi! I'm good, who is this?"</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUserSpeechSubmit("Tell me about my business and why you called.")}
+                        className="p-2.5 rounded-xl bg-[#7657FF]/5 hover:bg-[#7657FF] text-[#171717] hover:text-white border border-[#7657FF]/20 text-left transition-all cursor-pointer shadow-xs group"
+                      >
+                        <div className="text-[10px] font-bold text-[#7657FF] group-hover:text-white uppercase">Stage 2 · Discuss My Business</div>
+                        <div className="text-xs font-semibold mt-0.5">"Tell me about my business and why you called."</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUserSpeechSubmit("What services do you offer? How can we collaborate?")}
+                        className="p-2.5 rounded-xl bg-[#F59E0B]/5 hover:bg-[#F59E0B] text-[#171717] hover:text-white border border-[#F59E0B]/20 text-left transition-all cursor-pointer shadow-xs group"
+                      >
+                        <div className="text-[10px] font-bold text-[#B45309] group-hover:text-white uppercase">Stage 3 · Services & Collaboration</div>
+                        <div className="text-xs font-semibold mt-0.5">"What services do you offer? How can we collaborate?"</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUserSpeechSubmit("Yes, connect me directly with the owner Vivek Patel right now (+919408082933)!")}
+                        className="p-2.5 rounded-xl bg-[#10B981]/10 hover:bg-[#10B981] text-[#065F46] hover:text-white border-2 border-[#10B981]/40 text-left transition-all cursor-pointer shadow-sm group animate-pulse"
+                      >
+                        <div className="text-[10px] font-extrabold text-[#047857] group-hover:text-white uppercase">Stage 4 · Connect to Owner & Close Deal</div>
+                        <div className="text-xs font-bold mt-0.5">"Connect me with Vivek Patel right now (+919408082933)!"</div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Secondary Q&A Chips */}
+                  <div className="space-y-1 pt-1">
+                    <div className="text-[10px] text-[#6F6D68] font-bold uppercase tracking-wider">
+                      Or Ask Any Question (Pricing, Process, AI):
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {[
-                        "Hi! I'm good, who is this?",
-                        "Hello, what is this regarding?",
                         "How much does your service cost?",
-                        "What do you guys actually do?",
-                        "How does the process work?",
                         "Are you an AI or a real human?",
                         "Can you send an email with details?",
-                        "Can I see your portfolio or past work?",
-                        "Why should we choose you?",
-                        "We already have an agency",
-                        "I'm busy, call me later",
-                        "Sounds great, let's connect!"
+                        "We already have an in-house team",
+                        "I'm busy right now, call me later"
                       ].map((phrase, idx) => (
                         <button
                           key={idx}
                           type="button"
                           onClick={() => handleUserSpeechSubmit(phrase)}
-                          className="px-2.5 py-1 rounded-md bg-[#F7F6F2] hover:bg-[#3157FF] text-[#171717] hover:text-white text-[11px] font-medium border border-[#DDDCD7] transition-all cursor-pointer shadow-xs"
+                          className="px-2.5 py-1 rounded-lg bg-[#F7F6F2] hover:bg-[#3157FF] text-[#171717] hover:text-white text-[11px] font-medium border border-[#DDDCD7] transition-all cursor-pointer shadow-xs"
                         >
                           "{phrase}"
                         </button>
@@ -1133,13 +1258,13 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
                       type="text"
                       value={userSpeechInput}
                       onChange={(e) => setUserSpeechInput(e.target.value)}
-                      placeholder="Or type what you want to say to the AI..."
+                      placeholder="Type your spoken words or ask any question here..."
                       className="flex-1 bg-[#F7F6F2] border border-[#DDDCD7] rounded-xl px-3 py-2 text-xs text-[#171717] focus:outline-none focus:border-[#3157FF]"
                     />
                     <button
                       type="submit"
                       disabled={!userSpeechInput.trim() || isAiThinking}
-                      className="p-2 rounded-xl bg-[#3157FF] hover:bg-[#2745d8] disabled:opacity-40 text-white transition-all cursor-pointer"
+                      className="p-2.5 rounded-xl bg-[#3157FF] hover:bg-[#2745d8] disabled:opacity-40 text-white transition-all cursor-pointer shadow-sm"
                     >
                       <Send className="w-4 h-4" />
                     </button>

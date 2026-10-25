@@ -179,27 +179,82 @@ async def twilio_voice_turn(
     company: Optional[str] = Query("Your Target Business"),
     prospect: Optional[str] = Query("there"),
     service: Optional[str] = Query("Graphic Design & Digital Branding"),
-    sender: Optional[str] = Query("Vikram Patel"),
-    company_sender: Optional[str] = Query("Apex Growth Studio"),
-    sender_phone: Optional[str] = Query("+44 20 7946 0999")
+    sender: Optional[str] = Query("Vivek Patel"),
+    company_sender: Optional[str] = Query("LeadMind AI"),
+    sender_phone: Optional[str] = Query("+91 9408082933")
 ):
     """Twilio Speech Gathering Webhook: receives real-time speech from physical cellular phone"""
-    from twilio.twiml.voice_response import VoiceResponse, Gather
+    from twilio.twiml.voice_response import VoiceResponse, Gather, Dial
     from backend.app.agents.voice_calling_agent import VoiceCallingAgent, sanitize_dialogue_text
     import urllib.parse
     
     twiml = VoiceResponse()
     
     if not SpeechResult or not SpeechResult.strip():
+        action_url = (
+            f"/api/v1/outreach/voice/turn"
+            f"?company={urllib.parse.quote(company)}"
+            f"&prospect={urllib.parse.quote(prospect)}"
+            f"&service={urllib.parse.quote(service)}"
+            f"&sender={urllib.parse.quote(sender)}"
+            f"&company_sender={urllib.parse.quote(company_sender)}"
+            f"&sender_phone={urllib.parse.quote(sender_phone)}"
+        )
         gather = Gather(
             input='speech',
+            action=action_url,
             method='POST',
             speech_timeout='auto',
+            timeout=7,
             language='en-US'
         )
-        gather.say(f"I didn't quite catch that, {prospect}. Did you have a question about {service} for {company}?", voice="Polly.Joanna", language="en-US")
+        gather.say(f"I am still here with you, {prospect}! How have business and customer bookings been going for {company} lately?", voice="Polly.Joanna", language="en-US")
         twiml.append(gather)
         return Response(content=str(twiml), media_type="application/xml")
+        
+    req = CallInteractRequest(
+        user_speech=SpeechResult,
+        company_name=company,
+        prospect_name=prospect,
+        sender_company=company_sender,
+        sender_name=sender,
+        service_offered=service,
+        value_proposition="Transforming brand identity, menu designs, and digital assets to boost conversion rates by 40 percent."
+    )
+    result = await VoiceCallingAgent.respond_to_live_speech(req)
+    clean_text = sanitize_dialogue_text(result.ai_response_text)
+    
+    if result.is_forwarded or result.is_deal_closed:
+        twiml.say(clean_text, voice="Polly.Joanna", language="en-US")
+        twiml.say("Transferring your call directly to our owner, Vivek Patel, right now. Please hold while the line bridges!", voice="Polly.Joanna", language="en-US")
+        dial = Dial()
+        dial.number("+919408082933")
+        twiml.append(dial)
+    else:
+        action_url = (
+            f"/api/v1/outreach/voice/turn"
+            f"?company={urllib.parse.quote(company)}"
+            f"&prospect={urllib.parse.quote(prospect)}"
+            f"&service={urllib.parse.quote(service)}"
+            f"&sender={urllib.parse.quote(sender)}"
+            f"&company_sender={urllib.parse.quote(company_sender)}"
+            f"&sender_phone={urllib.parse.quote(sender_phone)}"
+        )
+        gather = Gather(
+            input='speech',
+            action=action_url,
+            method='POST',
+            speech_timeout='auto',
+            timeout=7,
+            language='en-US'
+        )
+        gather.say(clean_text, voice="Polly.Joanna", language="en-US")
+        twiml.append(gather)
+        # Fallback if prospect says nothing or call concludes
+        twiml.say(f"Thank you for speaking with me, {prospect}. You can reach our owner, Vivek Patel, directly at +91 9408082933. Have a wonderful day!", voice="Polly.Joanna", language="en-US")
+        twiml.hangup()
+        
+    return Response(content=str(twiml), media_type="application/xml")
         
     req = CallInteractRequest(
         user_speech=SpeechResult,
