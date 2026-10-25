@@ -136,15 +136,19 @@ class VoiceCallingAgent:
                 client = Client(twilio_sid, twilio_token)
 
                 vr = VoiceResponse()
+                clean_value = sanitize_dialogue_text(req.value_proposition)
+                clean_service = sanitize_dialogue_text(req.service_offered)
+
                 pitch_spoken = (
-                    f"Hello, good day! This is an autonomous sales briefing from {req.sender_company} calling for {company_name}. "
-                    f"We are reaching out regarding your commercial growth and {sanitize_dialogue_text(req.service_offered)}. "
-                    f"{sanitize_dialogue_text(req.value_proposition)} "
-                    f"Our growth director {req.sender_name} has prepared a customized concept preview for {company_name}. "
-                    f"You can reach us back directly on {req.sender_phone}. "
-                    "Thank you for your time, and have a wonderful day!"
+                    f"Hi {prospect_name}! This is {req.sender_name} calling from {req.sender_company}. "
+                    f"I am reaching out specifically regarding {company_name}. "
+                    f"We specialize in {clean_service}, and {clean_value} "
+                    f"We have already designed a customized concept preview tailored specifically for {company_name}, "
+                    f"and I would love to share a quick two-minute walkthrough with you whenever you have a moment. "
+                    f"You can call or text me right back on this number, or reach me directly at {req.sender_phone}. "
+                    f"Thank you for your time, {prospect_name}, and have a wonderful day!"
                 )
-                vr.say(pitch_spoken, voice="alice", language="en-US")
+                vr.say(pitch_spoken, voice="Polly.Joanna", language="en-US")
                 vr.pause(length=1)
 
                 twilio_call = client.calls.create(
