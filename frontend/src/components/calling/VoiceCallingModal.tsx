@@ -450,7 +450,7 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
         playBridgeChime();
         const transferTurn: CallDialogueTurn = {
           speaker: 'system',
-          text: `🔥 Warm transfer activated. Call bridged live to ${senderName} on ${senderPhone}.`,
+          text: `🔥 Automated Transfer: Calling owner ${senderName} (${senderPhone}), briefing him with ${targetCompany} details, and bridging line. Zero clicks needed!`,
           sentiment: 'forwarded',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         };
@@ -1287,11 +1287,11 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
 
                       <button
                         type="button"
-                        onClick={() => handleUserSpeechSubmit("Yes, connect me directly with the owner Vivek Patel right now (+919408082933)!")}
+                        onClick={() => handleUserSpeechSubmit("I want to talk with the owner of the store, please connect me with Vivek Patel (+919408082933)!")}
                         className="p-2.5 rounded-xl bg-[#10B981]/10 hover:bg-[#10B981] text-[#065F46] hover:text-white border-2 border-[#10B981]/40 text-left transition-all cursor-pointer shadow-sm group animate-pulse"
                       >
                         <div className="text-[10px] font-extrabold text-[#047857] group-hover:text-white uppercase">Stage 4 · Connect to Owner & Close Deal</div>
-                        <div className="text-xs font-bold mt-0.5">"Connect me with Vivek Patel right now (+919408082933)!"</div>
+                        <div className="text-xs font-bold mt-0.5">"I want to talk with the owner of the store (+919408082933)!"</div>
                       </button>
                     </div>
                   </div>
@@ -1347,34 +1347,55 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
                 </div>
               )}
 
-              {/* WARM FORWARDING ALERT BANNER */}
+              {/* AUTOMATED WHISPER & TRANSFER STATUS BANNER (ZERO CLICKS REQUIRED) */}
               {step === 'forwarded' && (
-                <div className="p-5 rounded-2xl bg-[#3157FF]/10 border-2 border-[#3157FF] shadow-sm animate-pulse space-y-3">
+                <div className="p-5 rounded-2xl bg-[#10B981]/10 border-2 border-[#10B981] shadow-md space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className="p-1.5 rounded-full bg-[#3157FF] text-white">
+                      <div className="p-1.5 rounded-full bg-[#10B981] text-white animate-pulse">
                         <PhoneForwarded className="w-4 h-4" />
                       </div>
-                      <span className="font-bold text-sm text-[#171717]">
-                        🔥 PROSPECT RECEPTIVE — CALL BRIDGED LIVE TO YOU!
+                      <span className="font-bold text-sm text-[#065F46]">
+                        ⚡ 100% AUTOMATED TRANSFER IN PROGRESS — ZERO CLICKS REQUIRED
                       </span>
                     </div>
-                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#3157FF] text-white font-bold">
-                      Bridge Active
+                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#10B981] text-white font-bold animate-pulse">
+                      Live Bridge
                     </span>
                   </div>
 
-                  <p className="text-xs text-[#171717]">
-                    Prospect <strong className="font-bold">{targetContact}</strong> agreed to discuss <strong className="text-[#3157FF] font-semibold">{serviceOffered}</strong>. The line has been bridged to your forwarding phone: <strong className="underline font-mono">{senderPhone}</strong>.
-                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                    <div className="p-2.5 rounded-xl bg-white border border-[#10B981]/30">
+                      <div className="text-[10px] font-bold text-[#047857] uppercase tracking-wide">Step 1 · Client On Hold</div>
+                      <div className="text-xs text-[#171717] mt-1 font-medium">
+                        Client told: <em>"Please hold on for just a moment while I brief our owner, Vivek Patel, with your details..."</em>
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white border border-[#10B981]/30">
+                      <div className="text-[10px] font-bold text-[#047857] uppercase tracking-wide">Step 2 · Owner Whisper</div>
+                      <div className="text-xs text-[#171717] mt-1 font-medium">
+                        Dialing <strong>{senderPhone}</strong> and whispering business details into Vivek's ear via Twilio Call Screening.
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white border border-[#10B981]/30">
+                      <div className="text-[10px] font-bold text-[#047857] uppercase tracking-wide">Step 3 · Auto Bridge</div>
+                      <div className="text-xs text-[#171717] mt-1 font-medium">
+                        Lines automatically join as soon as briefing finishes. Vivek closes deal directly with {targetContact}!
+                      </div>
+                    </div>
+                  </div>
 
-                  <div className="flex items-center gap-3 pt-1">
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="text-[11px] text-[#047857] font-semibold flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-[#10B981] animate-ping" />
+                      <span>No action needed on this screen. Twilio telecommunications gateway is handling the bridge autonomously.</span>
+                    </div>
                     <button
                       onClick={handleEndCall}
-                      className="px-4 py-2 rounded-xl bg-[#3157FF] hover:bg-[#2745d8] text-white font-bold text-xs flex items-center gap-2 shadow-sm transition-all cursor-pointer"
+                      className="px-3 py-1.5 rounded-xl bg-[#171717] hover:bg-black text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
                     >
-                      <UserCheck className="w-4 h-4" />
-                      <span>Take Over Live & Close Deal (Bridge Connected)</span>
+                      <PhoneOff className="w-3.5 h-3.5" />
+                      <span>Finish & Save Call</span>
                     </button>
                   </div>
                 </div>

@@ -616,7 +616,7 @@ class VoiceCallingAgent:
                 sentiment="neutral"
             )
 
-        # 1. If Gemini LLM is configured, use it with strict 4-stage sales instructions
+        # 1. If Gemini LLM is configured, use it with strict natural dialogue and explicit owner transfer
         if settings.GEMINI_API_KEY:
             try:
                 import google.generativeai as genai
@@ -641,17 +641,20 @@ class VoiceCallingAgent:
                 PROSPECT JUST SAID OVER THE PHONE:
                 "{user_spoken}"
 
-                SALES SEQUENCE GUIDELINES:
-                1. Stage 1 (Greeting): If prospect says 'hi', 'how are you', 'good', or asks 'who is this':
-                   Acknowledge warmly, introduce that you are calling on behalf of the owner Vivek Patel from {sender_company}, explain you love what they built at {company_name}, and ask how business is going.
-                2. Stage 2 (Client Business): If prospect asks why you called or tells about business:
-                   Praise {company_name}'s market presence, explain {clean_service}, and state that you have built a custom concept preview.
-                3. Stage 3 (Services & Collaboration): If prospect asks about services, collaboration, or workflow:
-                   Explain {clean_value}, emphasize 48-hour prototype delivery, and propose collaborating to grow {company_name}.
-                4. Stage 4 (Transfer to Owner): If prospect says 'yes', 'connect me with Vivek', 'talk to owner', 'sure', or agrees:
-                   Excitedly bridge them to Vivek Patel at {owner_phone} to close the deal.
-                5. If they ask questions (pricing, are you AI, send email): Answer directly and warmly!
-                6. Keep spoken response concise (1 to 3 natural sentences, max 45 words). No bullet points, markdown, or slashes.
+                CRITICAL SALES INTERACTION RULES:
+                1. Stage 1 (Greeting & Check-in): If prospect says 'hi', 'hello', 'how are you', 'doing good', or asks 'who is this':
+                   Warmly acknowledge, introduce that you are Alex calling from {sender_company} on behalf of our team, compliment what they've built at {company_name}, and ask how customer bookings have been going. DO NOT ask to connect to the owner.
+                2. Stage 2 (Client's Business & Reason for Call): If prospect asks why you called, what this is regarding, or answers about their business:
+                   Explain that at {sender_company} we specialize in {clean_service} ({clean_value}) to bring high-value clients without marketing headaches. Ask how they currently generate new inquiries. DO NOT ask to connect to the owner.
+                3. Stage 3 (Services & Collaboration Pitch): If prospect asks about services, collaboration, how it works, or process:
+                   Explain our turnkey model (rapid audit, custom funnels delivered in 48 hours, guaranteed ROI) and ask if a hands-off collaboration sounds helpful for {company_name}. DO NOT ask to connect to the owner.
+                4. Stage 4 (Transfer to Owner - ONLY when explicitly requested):
+                   ONLY if the prospect EXPLICITLY asks to speak with or talk to the owner, the store owner, or Vivek (e.g., 'connect me with the owner', 'can I speak to the owner', 'talk to Vivek', 'want to speak with the owner of the store'):
+                   Respond EXACTLY: "Understood, {prospect_name}! Please hold on for just a moment while I brief our owner, Vivek Patel, with your details and get him on the line."
+                   Set "is_forwarded": true, "is_deal_closed": true, "sentiment": "forwarded".
+                5. If prospect gives generic agreements ('yes', 'sure', 'sounds good', 'okay', 'tell me more', 'interested'):
+                   DO NOT transfer! Continue conversation enthusiastically, explain how we can bring 20 to 30 new bookings a month, and ask if they would like a 2-minute visual breakdown sent to their email.
+                6. Keep spoken response concise, conversational, and under 40 words. No bullet points or markdown.
 
                 Return strictly valid JSON:
                 {{
@@ -683,23 +686,28 @@ class VoiceCallingAgent:
                 print(f"[VoiceCallingAgent Live Turn] Gemini note: {e}")
 
         # 2. Comprehensive Human Sales Rule-Based Intelligence Engine
-        # STAGE 4 FIRST (Highest Priority): Live Transfer to Owner Vivek Patel (+91 9408082933) to Close Deal
+        # STAGE 4 FIRST (Highest Priority): ONLY when caller explicitly requests the owner or Vivek
         if matches_any_intent([
-            "connect me with the owner", "connect with owner", "connect to owner", "talk to the owner", "talk to owner",
-            "talk with owner", "speak to owner", "speak with owner", "want to talk with owner", "want to talk to owner",
-            "want to connect with owner", "want to talk with the owner", "want to connect with the owner",
-            "connect me with vivek", "connect with vivek", "connect to vivek", "talk to vivek", "talk with vivek",
-            "speak to vivek", "speak with vivek", "transfer to vivek", "transfer me to vivek", "call vivek",
-            "direct call with me", "connect to me", "connect me", "transfer me", "transfer call", "patch me through",
-            "patch through", "close the deal", "close deal", "close this deal", "lets do it", "let's do it",
-            "lets close the deal", "let's close the deal", "yes connect me", "yes transfer me", "yes connect",
-            "yes transfer", "sure connect", "sure transfer", "yes please connect", "connect now"
+            "connect me with the owner", "connect with owner", "connect to owner", "connect with the owner",
+            "talk to the owner", "talk to owner", "talk with owner", "talk with the owner",
+            "speak to owner", "speak to the owner", "speak with owner", "speak with the owner",
+            "want to talk with owner", "want to talk to owner", "want to talk with the owner", "want to talk to the owner",
+            "want to connect with owner", "want to connect with the owner", "want to speak with the owner",
+            "owner of the store", "owner of this store", "talk to the owner of the store", "connect me with the owner of the store",
+            "speak with the owner of the store", "owner of the business", "talk to the owner of the business",
+            "owner of this business", "connect me with vivek", "connect with vivek", "connect to vivek",
+            "connect me to vivek", "talk to vivek", "talk with vivek", "speak to vivek", "speak with vivek",
+            "transfer to vivek", "transfer me to vivek", "call vivek", "can i talk to the owner",
+            "can i speak with the owner", "can i speak to the owner", "let me talk to the owner",
+            "let me speak to the owner", "let me speak with the owner", "i want to talk with the owner",
+            "i want to talk to the owner", "i want to speak with the owner", "i want to connect with the owner",
+            "connect me to the owner", "transfer me to the owner", "transfer call to owner",
+            "patch me through to the owner", "get me the owner", "direct call with owner"
         ], user_spoken):
             return CallInteractResponse(
                 ai_response_text=(
-                    f"Fantastic, {prospect_name}! I am transferring you directly to our owner, Vivek Patel, "
-                    f"right now at +91 9408082933 so you can review the concepts and close this deal together. "
-                    f"Please hold for just two seconds while I bridge the line!"
+                    f"Understood, {prospect_name}! Please hold on for just a moment while I brief our owner, "
+                    f"Vivek Patel, with {company_name}'s details and get him on the line."
                 ),
                 sentiment="forwarded",
                 is_deal_closed=True,
@@ -716,10 +724,9 @@ class VoiceCallingAgent:
         ], user_spoken):
             return CallInteractResponse(
                 ai_response_text=(
-                    f"Our collaboration model is completely turnkey: First, we do a rapid audit of {company_name}. "
-                    f"Second, we deliver ready-to-launch commercial assets within 48 hours. "
-                    f"And third, you launch with guaranteed ROI. We would love to collaborate and help {company_name} dominate your local market! "
-                    f"Would you like me to connect you directly with the owner, Vivek Patel, right now at +91 9408082933 so you can discuss next steps?"
+                    f"We would love to collaborate with {company_name} and help build a successful business together! "
+                    f"Our model is completely turnkey: first, we do a rapid audit of your market; second, we deliver ready-to-launch creative assets and acquisition funnels within 48 hours; and third, you launch with guaranteed ROI. "
+                    f"We handle everything end-to-end so you and your team can focus 100% on your operations. Does a hands-off collaboration like that sound helpful for {company_name}?"
                 ),
                 sentiment="interested"
             )
@@ -735,10 +742,9 @@ class VoiceCallingAgent:
         ], user_spoken):
             return CallInteractResponse(
                 ai_response_text=(
-                    f"That's exactly why we reached out! At {sender_company}, we provide {clean_service} - specifically, {clean_value} "
-                    f"We handle all the creative and marketing assets end-to-end so you don't have to lift a finger, typically boosting client revenue by 35% to 40%. "
-                    f"We'd love to collaborate with {company_name} and make this a huge success together! We've already built a customized preview for you. "
-                    f"Would you like me to connect you directly with our owner, Vivek Patel, right now so you can review it together?"
+                    f"That's great context, {prospect_name}! The reason we called is that at {sender_company}, we specialize in {clean_service} — specifically {clean_value} "
+                    f"We help businesses like {company_name} attract more high-value customers without you having to manage marketing in-house. "
+                    f"How are you currently generating most of your new customer inquiries and bookings right now?"
                 ),
                 sentiment="interested"
             )
@@ -754,21 +760,12 @@ class VoiceCallingAgent:
         ], user_spoken):
             return CallInteractResponse(
                 ai_response_text=(
-                    f"Awesome to hear, {prospect_name}! My name is Alex with {sender_company} calling on behalf of our owner, Vivek Patel. "
-                    f"The reason I am reaching out is we have been closely following {company_name} and we really love what you've built. "
+                    f"Awesome to hear, {prospect_name}! My name is Alex with {sender_company} calling on behalf of our team. "
+                    f"The reason I'm reaching out is we have been following {company_name} and we really love what you've built. "
                     f"We noticed an exciting opportunity in your local market to help you capture even more customer bookings. "
                     f"How have business and customer bookings been going for you lately?"
                 ),
                 sentiment="positive"
-            )
-            return CallInteractResponse(
-                ai_response_text=(
-                    f"Our collaboration model is completely turnkey: First, we do a rapid audit of {company_name}. "
-                    f"Second, we deliver ready-to-launch commercial assets within 48 hours. "
-                    f"And third, you launch with guaranteed ROI. We would love to collaborate and help {company_name} dominate your local market! "
-                    f"Would you like me to connect you directly with the owner, Vivek Patel, right now at +91 9408082933 so you can discuss next steps?"
-                ),
-                sentiment="interested"
             )
 
         # Q&A: Pricing & Costs
@@ -778,9 +775,9 @@ class VoiceCallingAgent:
         ], user_spoken):
             return CallInteractResponse(
                 ai_response_text=(
-                    f"Great question! Our pricing is completely modular and structured to guarantee a 3x to 5x return on investment for {company_name}. "
-                    f"In fact, our owner Vivek Patel can break down transparent pricing in under two minutes for your exact needs. "
-                    f"Would you like me to connect you directly with Vivek right now at +91 9408082933?"
+                    f"Great question! Our pricing is completely modular and performance-focused, structured to guarantee a 3x to 5x return on investment for {company_name}. "
+                    f"We customize packages around your monthly customer booking targets. "
+                    f"Are you looking to scale aggressive growth right now, or start with steady consistent inquiries?"
                 ),
                 sentiment="interested"
             )
@@ -792,9 +789,10 @@ class VoiceCallingAgent:
         ], user_spoken):
             return CallInteractResponse(
                 ai_response_text=(
-                    f"Haha, good ear! Yes, I'm an AI voice assistant working directly with our owner, Vivek Patel, at {sender_company}. "
-                    f"I'm here to chat, answer your initial questions, and connect you directly with Vivek at +91 9408082933 if you want to speak with him live. "
-                    f"Would you like me to transfer you to Vivek right now?"
+                    f"Haha, good ear! Yes, I'm an AI voice assistant with {sender_company}. "
+                    f"I'm here to introduce our services and discuss how we can partner with {company_name}. "
+                    f"If at any point you'd like to speak directly with our owner Vivek Patel, just let me know and I'll connect you right away! "
+                    f"What questions do you have about what we do?"
                 ),
                 sentiment="positive"
             )
@@ -820,7 +818,7 @@ class VoiceCallingAgent:
             return CallInteractResponse(
                 ai_response_text=(
                     f"I completely understand, {prospect_name}! You're busy running {company_name}. "
-                    f"What is a better time later today or tomorrow for our owner, Vivek Patel, to give you a quick 2-minute ring?"
+                    f"What is a better time later today or tomorrow for our team to give you a quick 2-minute ring?"
                 ),
                 sentiment="objection",
                 objection_detected="Time constraint"
@@ -833,7 +831,7 @@ class VoiceCallingAgent:
             return CallInteractResponse(
                 ai_response_text=(
                     f"Totally respect that! Most successful brands like {company_name} already have great partners. "
-                    f"We often step in as a specialized overflow partner. Would you be open to having our owner Vivek Patel share our 2-minute preview as a benchmark?"
+                    f"We often step in as a specialized overflow partner. Would you be open to taking a look at our 2-minute preview as a benchmark?"
                 ),
                 sentiment="objection",
                 objection_detected="Existing vendor"
@@ -846,31 +844,30 @@ class VoiceCallingAgent:
             return CallInteractResponse(
                 ai_response_text=(
                     f"No problem at all, {prospect_name}, I appreciate your honesty! Before I let you go, could I just shoot over a 2-minute email overview "
-                    f"with zero commitment so you have Vivek Patel's contact details if your needs ever change?"
+                    f"with zero commitment so you have our contact details if your needs ever change?"
                 ),
                 sentiment="objection",
                 objection_detected="Initial resistance"
             )
 
-        # Positive Agreement / Yes
+        # Positive Agreement / Conversational Continuation (DOES NOT TRANSFER without explicit owner request)
         if matches_any_intent([
-            "yes", "sure", "okay", "sounds good", "tell me more", "interested", "go ahead"
+            "yes", "sure", "okay", "sounds good", "tell me more", "interested", "go ahead",
+            "sounds great", "i see", "makes sense", "continue", "alright"
         ], user_spoken):
             return CallInteractResponse(
                 ai_response_text=(
-                    f"Awesome, {prospect_name}! Transferring you directly to our owner, Vivek Patel, right now at +91 9408082933. "
-                    f"Please hold for just two seconds while the line bridges!"
+                    f"Awesome, {prospect_name}! We've actually prepared a tailored concept preview showing how {company_name} can capture 20 to 30 additional bookings every month. "
+                    f"Would you like me to send that 2-minute visual breakdown to your email so you can check it out?"
                 ),
-                sentiment="forwarded",
-                is_deal_closed=True,
-                is_forwarded=True
+                sentiment="interested"
             )
 
         # Contextual Fallback
         return CallInteractResponse(
             ai_response_text=(
-                f"I completely hear you, {prospect_name}. Our primary goal is simply helping {company_name} capture more clients and revenue. "
-                f"Would you like me to connect you directly with our owner, Vivek Patel, right now at +91 9408082933 for a quick two-minute intro?"
+                f"I completely understand, {prospect_name}. Our primary goal is simply helping {company_name} capture more clients and revenue without extra headache. "
+                f"Feel free to ask me anything about our services, or let me know what questions you have about what we do!"
             ),
             sentiment="positive"
         )

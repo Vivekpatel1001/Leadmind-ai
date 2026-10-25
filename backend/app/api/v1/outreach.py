@@ -173,6 +173,30 @@ async def twilio_voice_webhook():
     twiml.pause(length=1)
     return Response(content=str(twiml), media_type="application/xml")
 
+@router.post("/voice/whisper")
+@router.get("/voice/whisper")
+async def twilio_voice_whisper(
+    company: Optional[str] = Query("Your Target Business"),
+    prospect: Optional[str] = Query("Decision Maker"),
+    service: Optional[str] = Query("Commercial Branding & Growth")
+):
+    """
+    Twilio Call Screening / Whisper TwiML Webhook:
+    When Twilio dials Vivek Patel (+91 9408082933), Twilio executes this TwiML into Vivek's ear ONLY.
+    Vivek hears: 'Hello Vivek! You have an incoming lead transfer from {prospect} at {company}...'
+    As soon as this <Say> completes, Twilio automatically bridges Vivek with the waiting client live!
+    ZERO manual button clicks required.
+    """
+    from twilio.twiml.voice_response import VoiceResponse
+    twiml = VoiceResponse()
+    twiml.say(
+        f"Hello Vivek! You have an incoming lead transfer from {prospect} at {company}. "
+        f"They are interested in {service} and asked to speak with the owner. Connecting you to the caller right now!",
+        voice="Polly.Joanna",
+        language="en-US"
+    )
+    return Response(content=str(twiml), media_type="application/xml")
+
 @router.post("/voice/turn")
 async def twilio_voice_turn(
     SpeechResult: Optional[str] = Form(None),
@@ -251,19 +275,29 @@ async def twilio_voice_turn(
         sentiment=result.sentiment
     )
 
-    # 4. Warm live transfer to owner Vivek Patel
+    # 4. Warm live transfer to owner Vivek Patel with automated whisper screening
     if result.is_forwarded or result.is_deal_closed:
         VoiceCallingAgent.record_live_turn(
             identifier=session_id,
             speaker="system",
-            text="🔥 Warm transfer activated. Call bridged live to Vivek Patel at +919408082933.",
+            text=f"🔥 Automated Transfer: Calling owner Vivek Patel (+919408082933), briefing him with {company} details, and bridging line.",
             sentiment="forwarded",
             is_forwarded=True
         )
+        # 1. Inform client to wait while we brief Vivek
         twiml.say(clean_text, voice="Polly.Joanna", language="en-US")
-        twiml.say("Transferring your call directly to our owner, Vivek Patel, right now. Please hold while the line bridges!", voice="Polly.Joanna", language="en-US")
+        
+        # 2. Automated whisper screening:
+        # Twilio dials Vivek (+91 9408082933). While client waits on hold, Twilio executes whisper_url to Vivek upon answering,
+        # briefs him with lead details into his ear only, and instantly connects both calls together!
+        whisper_url = (
+            f"{base_url}/api/v1/outreach/voice/whisper"
+            f"?company={urllib.parse.quote(company)}"
+            f"&prospect={urllib.parse.quote(prospect)}"
+            f"&service={urllib.parse.quote(service)}"
+        )
         dial = Dial(caller_id="+12362044214")
-        dial.number("+919408082933")
+        dial.number("+919408082933", url=whisper_url)
         twiml.append(dial)
     else:
         gather = Gather(
