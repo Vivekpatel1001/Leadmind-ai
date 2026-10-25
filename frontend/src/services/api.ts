@@ -251,6 +251,13 @@ export const api = {
     return res.json();
   },
 
+  async getLiveCallTranscript(identifier?: string): Promise<any> {
+    const param = identifier ? `?identifier=${encodeURIComponent(identifier)}` : '';
+    const res = await fetch(`${API_BASE}/outreach/voice/live-transcript${param}`);
+    if (!res.ok) throw new Error('Failed to fetch live transcript');
+    return res.json();
+  },
+
   // Agent 12: AI Email Draft & Follow-up Engine
   async generateEmailDraft(payload: {
     lead_id: string;

@@ -91,6 +91,92 @@ class VoiceCallingAgent:
     - Record full transcript, sentiment score, audio duration, and update CRM stage
     """
 
+    _LIVE_CALL_REGISTRY: Dict[str, Dict[str, Any]] = {}
+
+    @classmethod
+    def register_live_session(
+        cls,
+        call_id: str,
+        phone: str,
+        twilio_call_sid: Optional[str] = None,
+        initial_turns: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """Registers an active call session so the dashboard can poll and view real-time spoken audio transcripts."""
+        session_data = {
+            "call_id": call_id,
+            "phone": phone,
+            "twilio_call_sid": twilio_call_sid,
+            "status": "connected",
+            "is_forwarded": False,
+            "turns": list(initial_turns or []),
+            "last_updated": datetime.utcnow().isoformat()
+        }
+        cls._LIVE_CALL_REGISTRY[call_id] = session_data
+        if twilio_call_sid:
+            cls._LIVE_CALL_REGISTRY[twilio_call_sid] = session_data
+        if phone:
+            cls._LIVE_CALL_REGISTRY[phone] = session_data
+        cls._LIVE_CALL_REGISTRY["latest"] = session_data
+        return session_data
+
+    @classmethod
+    def record_live_turn(
+        cls,
+        identifier: Optional[str],
+        speaker: str,
+        text: str,
+        sentiment: str = "neutral",
+        is_forwarded: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """Appends a spoken turn (prospect speech or AI speech) to the live session transcript."""
+        session = None
+        if identifier and identifier in cls._LIVE_CALL_REGISTRY:
+            session = cls._LIVE_CALL_REGISTRY[identifier]
+        elif "latest" in cls._LIVE_CALL_REGISTRY:
+            session = cls._LIVE_CALL_REGISTRY["latest"]
+
+        if session is None and identifier:
+            session = cls.register_live_session(
+                call_id=identifier,
+                phone=identifier,
+                twilio_call_sid=identifier if identifier.startswith("CA") else None
+            )
+
+        if session is not None:
+            turn = {
+                "speaker": speaker,
+                "text": text,
+                "sentiment": sentiment,
+                "timestamp": datetime.now().strftime("%H:%M:%S")
+            }
+            session["turns"].append(turn)
+            session["last_updated"] = datetime.utcnow().isoformat()
+            if is_forwarded:
+                session["is_forwarded"] = True
+                session["status"] = "forwarded"
+            return session
+        return None
+
+    @classmethod
+    def get_live_session(cls, identifier: Optional[str] = None) -> Dict[str, Any]:
+        """Retrieves the live call session by call SID, call ID, phone number, or returns latest."""
+        if identifier and identifier in cls._LIVE_CALL_REGISTRY:
+            return cls._LIVE_CALL_REGISTRY[identifier]
+        if identifier:
+            clean_id = clean_phone_number(identifier) or identifier
+            for k, s in cls._LIVE_CALL_REGISTRY.items():
+                if s.get("twilio_call_sid") == identifier or s.get("call_id") == identifier or s.get("phone") == clean_id:
+                    return s
+        if "latest" in cls._LIVE_CALL_REGISTRY:
+            return cls._LIVE_CALL_REGISTRY["latest"]
+        return {
+            "call_id": "",
+            "twilio_call_sid": None,
+            "status": "idle",
+            "is_forwarded": False,
+            "turns": []
+        }
+
     @classmethod
     @traceable(name="11_VoiceCallingAgent_execute_call", run_type="chain")
     async def execute_outbound_call(
@@ -151,51 +237,35 @@ class VoiceCallingAgent:
                 clean_value = sanitize_dialogue_text(req.value_proposition)
                 clean_service = sanitize_dialogue_text(req.service_offered)
 
-                webhook_url = (getattr(req, 'twilio_webhook_url', None) or settings.TWILIO_WEBHOOK_URL or '').strip()
-                if webhook_url:
-                    webhook_clean = webhook_url.rstrip('/')
-                    action_url = (
-                        f"{webhook_clean}/api/v1/outreach/voice/turn"
-                        f"?company={urllib.parse.quote(company_name)}"
-                        f"&prospect={urllib.parse.quote(prospect_name)}"
-                        f"&service={urllib.parse.quote(req.service_offered)}"
-                        f"&sender={urllib.parse.quote(req.sender_name)}"
-                        f"&company_sender={urllib.parse.quote(req.sender_company)}"
-                        f"&sender_phone={urllib.parse.quote(req.sender_phone)}"
-                    )
-                    gather = Gather(
-                        input='speech',
-                        action=action_url,
-                        method='POST',
-                        speech_timeout='auto',
-                        language='en-US'
-                    )
-                    gather.say(f"Hi {prospect_name}! Hello, how are you doing today?", voice="Polly.Joanna", language="en-US")
-                    vr.append(gather)
-                    # If caller didn't speak:
-                    vr.say(
-                        f"Hi {prospect_name}, this is {req.sender_name} from {req.sender_company}. "
-                        f"We've prepared a customized concept preview for {company_name} regarding {clean_service}. "
-                        f"Feel free to call or text me right back at {req.sender_phone}. Have a great day!",
-                        voice="Polly.Joanna",
-                        language="en-US"
-                    )
-                else:
-                    # Natural human cadence: warm greeting, 1s pause, followed by conversational pitch and callback invite
-                    vr.say(f"Hi {prospect_name}! Hello, I hope you're having a wonderful day.", voice="Polly.Joanna", language="en-US")
-                    vr.pause(length=1)
-
-                    pitch_spoken = (
-                        f"This is {req.sender_name} calling from {req.sender_company}. "
-                        f"The reason I am reaching out is regarding {company_name}. "
-                        f"We specialize in {clean_service}, and {clean_value} "
-                        f"We have already designed a customized concept preview tailored specifically for {company_name}, "
-                        f"and I would love to share a quick two-minute walkthrough with you whenever you have a moment. "
-                        f"You can call or text me right back on this number, or reach me directly at {req.sender_phone}. "
-                        f"Thank you for your time, {prospect_name}, and have a wonderful day!"
-                    )
-                    vr.say(pitch_spoken, voice="Polly.Joanna", language="en-US")
-                    vr.pause(length=1)
+                webhook_url = (getattr(req, 'twilio_webhook_url', None) or settings.TWILIO_WEBHOOK_URL or 'https://nice-trains-spend.loca.lt').strip()
+                webhook_clean = webhook_url.rstrip('/')
+                action_url = (
+                    f"{webhook_clean}/api/v1/outreach/voice/turn"
+                    f"?company={urllib.parse.quote(company_name)}"
+                    f"&prospect={urllib.parse.quote(prospect_name)}"
+                    f"&service={urllib.parse.quote(req.service_offered)}"
+                    f"&sender={urllib.parse.quote(req.sender_name)}"
+                    f"&company_sender={urllib.parse.quote(req.sender_company)}"
+                    f"&sender_phone={urllib.parse.quote(req.sender_phone)}"
+                )
+                gather = Gather(
+                    input='speech dtmf',
+                    action=action_url,
+                    method='POST',
+                    speech_timeout='auto',
+                    timeout=8,
+                    language='en-US'
+                )
+                gather.say(f"Hi {prospect_name}! Hello, how are you doing today?", voice="Polly.Joanna", language="en-US")
+                vr.append(gather)
+                # If caller didn't speak:
+                vr.say(
+                    f"Hi {prospect_name}, this is {req.sender_name} from {req.sender_company}. "
+                    f"We've prepared a customized concept preview for {company_name} regarding {clean_service}. "
+                    f"Feel free to call or text me right back at {req.sender_phone}. Have a great day!",
+                    voice="Polly.Joanna",
+                    language="en-US"
+                )
 
                 twilio_call = client.calls.create(
                     to=clean_lead_phone,
@@ -206,6 +276,26 @@ class VoiceCallingAgent:
                 twilio_call_id = twilio_call.sid
                 carrier_notice = f"Real cellular phone call successfully placed to {clean_lead_phone} via Twilio Voice Gateway (Call SID: {twilio_call.sid})."
                 print(f"[Twilio Voice] Outbound real call initiated: {twilio_call.sid} to {clean_lead_phone}")
+
+                cls.register_live_session(
+                    call_id=call_id,
+                    phone=clean_lead_phone,
+                    twilio_call_sid=twilio_call.sid,
+                    initial_turns=[
+                        {
+                            "speaker": "system",
+                            "text": f"Cellular GSM call placed to {clean_lead_phone} via Twilio line {twilio_from}. Pick up your mobile phone!",
+                            "sentiment": "neutral",
+                            "timestamp": datetime.now().strftime("%H:%M:%S")
+                        },
+                        {
+                            "speaker": "ai",
+                            "text": f"Hi {prospect_name}! Hello, how are you doing today?",
+                            "sentiment": "positive",
+                            "timestamp": datetime.now().strftime("%H:%M:%S")
+                        }
+                    ]
+                )
 
             except Exception as e:
                 print(f"[Twilio Voice Error] Could not dispatch real call: {e}")
@@ -558,13 +648,17 @@ class VoiceCallingAgent:
                 print(f"[VoiceCallingAgent Live Turn] Gemini note: {e}")
 
         # 2. Comprehensive Human Sales Rule-Based Intelligence Engine
-        # STAGE 4 FIRST (High Priority): Live Transfer to Owner Vivek Patel (+91 9408082933)
+        # STAGE 4 FIRST (Highest Priority): Live Transfer to Owner Vivek Patel (+91 9408082933) to Close Deal
         if matches_any_intent([
-            "connect me with the owner", "connect with owner", "talk to the owner", "talk to owner",
-            "connect me with vivek", "connect with vivek", "talk to vivek", "transfer to vivek",
-            "direct call with me", "connect to me", "transfer me", "patch me through", "patch through",
-            "close the deal", "close deal", "lets do it", "let's do it", "lets talk", "let's talk",
-            "lets connect", "let's connect", "transfer our call", "connect our call", "call vivek"
+            "connect me with the owner", "connect with owner", "connect to owner", "talk to the owner", "talk to owner",
+            "talk with owner", "speak to owner", "speak with owner", "want to talk with owner", "want to talk to owner",
+            "want to connect with owner", "want to talk with the owner", "want to connect with the owner",
+            "connect me with vivek", "connect with vivek", "connect to vivek", "talk to vivek", "talk with vivek",
+            "speak to vivek", "speak with vivek", "transfer to vivek", "transfer me to vivek", "call vivek",
+            "direct call with me", "connect to me", "connect me", "transfer me", "transfer call", "patch me through",
+            "patch through", "close the deal", "close deal", "close this deal", "lets do it", "let's do it",
+            "lets close the deal", "let's close the deal", "yes connect me", "yes transfer me", "yes connect",
+            "yes transfer", "sure connect", "sure transfer", "yes please connect", "connect now"
         ], user_spoken):
             return CallInteractResponse(
                 ai_response_text=(
@@ -577,30 +671,32 @@ class VoiceCallingAgent:
                 is_forwarded=True
             )
 
-        # STAGE 1: Greeting & Check-in ("Hi! I'm good, who is this?", "Hello, how are you?")
+        # STAGE 3: Collaboration Pitch & Services Workflow ("What services do you offer? How can we collaborate?")
         if matches_any_intent([
-            "who is this", "who are you", "who's this", "who's calling", "whos calling",
-            "how are you", "how are you doing", "how's it going", "hows it going",
-            "i am good", "i'm good", "doing good", "doing well", "i am doing well", "i'm doing well",
-            "pretty good", "all good", "fine thanks", "i am fine", "i'm fine", "great thanks",
-            "hello", "hi", "hey", "good morning", "good afternoon"
+            "what services do you offer", "what services", "what service", "what are you offering", "services",
+            "how can we collaborate", "collabrate", "collaborate", "collaboration", "collab", "partnership",
+            "partner", "let's collabrate", "lets collabrate", "make a successful business", "successful business",
+            "work together", "how to collaborate", "show me the concept", "what is the process", "how does it work",
+            "how do we start", "what is the next step"
         ], user_spoken):
             return CallInteractResponse(
                 ai_response_text=(
-                    f"Awesome to hear, {prospect_name}! My name is Alex with {sender_company} calling on behalf of our owner, Vivek Patel. "
-                    f"The reason I am reaching out is we have been closely following {company_name} and we really love what you've built. "
-                    f"We noticed an exciting opportunity in your local market to help you capture even more customer bookings. "
-                    f"How have business and customer bookings been going for you lately?"
+                    f"Our collaboration model is completely turnkey: First, we do a rapid audit of {company_name}. "
+                    f"Second, we deliver ready-to-launch commercial assets within 48 hours. "
+                    f"And third, you launch with guaranteed ROI. We would love to collaborate and help {company_name} dominate your local market! "
+                    f"Would you like me to connect you directly with the owner, Vivek Patel, right now at +91 9408082933 so you can discuss next steps?"
                 ),
-                sentiment="positive"
+                sentiment="interested"
             )
 
-        # STAGE 2: Client's Business & Why We Called ("Tell me about my business", "Why did you call?")
+        # STAGE 2: Client's Business First & Why We Called ("Tell me about my business", "Why did you call?")
         if matches_any_intent([
             "tell me about my business", "about my business", "why did you call", "why are you calling",
-            "why call me", "what is this about", "what's this about", "what is this regarding",
-            "what do you want", "tell me what you mean", "tell me what you do", "it's going well",
-            "its going well", "going good", "could use more customers", "need more customers"
+            "why call me", "why did you ring", "what is this about", "what's this about", "what is this regarding",
+            "what do you want", "what do you do", "what is your business", "tell me what you mean",
+            "tell me what you do", "tell me why you called", "how can you help", "how can you help us",
+            "tell me more about my business", "it's going well", "its going well", "going good", "business is good",
+            "business is slow", "sales are slow", "could use more customers", "need more customers", "not bad"
         ], user_spoken):
             return CallInteractResponse(
                 ai_response_text=(
@@ -612,13 +708,24 @@ class VoiceCallingAgent:
                 sentiment="interested"
             )
 
-        # STAGE 3: Collaboration Pitch & Services Workflow ("What services do you offer? How can we collaborate?")
+        # STAGE 1: Greeting & Check-in ("Hi! I'm good, who is this?", "Hello, how are you?")
         if matches_any_intent([
-            "what services do you offer", "what services", "what service", "what are you offering",
-            "how can we collaborate", "collabrate", "collaborate", "collaboration", "partnership",
-            "let's collabrate", "lets collabrate", "make a successful business", "successful business",
-            "show me the concept", "what is the process", "how does it work", "how do we start"
+            "who is this", "who are you", "who's this", "who's calling", "whos calling", "who is calling",
+            "who am i speaking to", "who is speaking", "how are you", "how are you doing", "how's it going",
+            "hows it going", "i am good", "i'm good", "doing good", "doing well", "i am doing well",
+            "i'm doing well", "pretty good", "all good", "fine thanks", "i am fine", "i'm fine", "great thanks",
+            "hello", "hi", "hey", "good morning", "good afternoon", "good evening", "speaking", "this is",
+            "listening", "go ahead", "yes hello", "yes hi"
         ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"Awesome to hear, {prospect_name}! My name is Alex with {sender_company} calling on behalf of our owner, Vivek Patel. "
+                    f"The reason I am reaching out is we have been closely following {company_name} and we really love what you've built. "
+                    f"We noticed an exciting opportunity in your local market to help you capture even more customer bookings. "
+                    f"How have business and customer bookings been going for you lately?"
+                ),
+                sentiment="positive"
+            )
             return CallInteractResponse(
                 ai_response_text=(
                     f"Our collaboration model is completely turnkey: First, we do a rapid audit of {company_name}. "

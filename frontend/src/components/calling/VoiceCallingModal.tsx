@@ -105,6 +105,7 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
   );
 
   const timerRef = useRef<any>(null);
+  const livePollTimerRef = useRef<any>(null);
   const ringAudioRef = useRef<AudioContext | null>(null);
   const recognitionRef = useRef<any>(null);
   const transcriptBottomRef = useRef<HTMLDivElement>(null);
@@ -126,6 +127,35 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
     }
   }, [lead]);
 
+  // Real GSM Cellular Live Audio & Speech Transcript Polling
+  useEffect(() => {
+    if (callingMode === 'real_gsm' && (step === 'connected' || step === 'forwarded')) {
+      const pollLiveTurns = async () => {
+        try {
+          const callId = callSession?.twilio_call_sid || callSession?.call_id || targetPhone;
+          const liveData = await api.getLiveCallTranscript(callId);
+          if (liveData && Array.isArray(liveData.turns) && liveData.turns.length > 0) {
+            setTurns(liveData.turns);
+            if (liveData.is_forwarded && currentStepRef.current !== 'forwarded') {
+              setStep('forwarded');
+            }
+          }
+        } catch (e) {
+          // Poll note
+        }
+      };
+
+      pollLiveTurns();
+      livePollTimerRef.current = setInterval(pollLiveTurns, 1500);
+
+      return () => {
+        if (livePollTimerRef.current) clearInterval(livePollTimerRef.current);
+      };
+    } else {
+      if (livePollTimerRef.current) clearInterval(livePollTimerRef.current);
+    }
+  }, [callingMode, step, callSession, targetPhone]);
+
   // Auto-scroll transcript
   useEffect(() => {
     transcriptBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -140,6 +170,7 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
         window.speechSynthesis.cancel();
       }
       if (timerRef.current) clearInterval(timerRef.current);
+      if (livePollTimerRef.current) clearInterval(livePollTimerRef.current);
     };
   }, []);
 
@@ -266,33 +297,26 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
       };
 
       recognition.onresult = (event: any) => {
-        let interim = '';
-        let final = '';
+        let fullTranscript = '';
+        for (let i = 0; i < event.results.length; i++) {
+          fullTranscript += event.results[i][0].transcript + ' ';
+        }
+        fullTranscript = fullTranscript.trim();
 
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            final += event.results[i][0].transcript;
-          } else {
-            interim += event.results[i][0].transcript;
+        if (fullTranscript) {
+          setInterimTranscript(fullTranscript);
+          setUserSpeechInput(fullTranscript);
+
+          // Debounce auto-submit: 1.6 seconds of silence after user finishes speaking
+          if (speechSilenceTimerRef.current) {
+            clearTimeout(speechSilenceTimerRef.current);
           }
-        }
 
-        const currentSpoken = (final || interim).trim();
-        if (currentSpoken) {
-          setInterimTranscript(currentSpoken);
-        }
-
-        // Generous silence debounce: give the user 2.5 seconds of silence before auto-submitting
-        if (speechSilenceTimerRef.current) {
-          clearTimeout(speechSilenceTimerRef.current);
-        }
-
-        if (final.trim()) {
           speechSilenceTimerRef.current = setTimeout(() => {
-            if (final.trim()) {
-              handleUserSpeechSubmit(final.trim());
+            if (fullTranscript.trim()) {
+              handleUserSpeechSubmit(fullTranscript.trim());
             }
-          }, 2400);
+          }, 1600);
         }
       };
 
@@ -338,8 +362,8 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
 
   // User speaks or sends a response to the AI in real time
   const handleUserSpeechSubmit = async (spokenText?: string) => {
-    const textToSend = spokenText || userSpeechInput;
-    if (!textToSend.trim() || isAiThinking) return;
+    const textToSend = (spokenText || userSpeechInput || interimTranscript || '').trim();
+    if (!textToSend || isAiThinking) return;
 
     setUserSpeechInput('');
     setInterimTranscript('');

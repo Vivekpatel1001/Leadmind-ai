@@ -176,6 +176,10 @@ async def twilio_voice_webhook():
 @router.post("/voice/turn")
 async def twilio_voice_turn(
     SpeechResult: Optional[str] = Form(None),
+    CallSid: Optional[str] = Form(None),
+    Called: Optional[str] = Form(None),
+    To: Optional[str] = Form(None),
+    From: Optional[str] = Form(None),
     company: Optional[str] = Query("Your Target Business"),
     prospect: Optional[str] = Query("there"),
     service: Optional[str] = Query("Graphic Design & Digital Branding"),
@@ -186,34 +190,49 @@ async def twilio_voice_turn(
     """Twilio Speech Gathering Webhook: receives real-time speech from physical cellular phone"""
     from twilio.twiml.voice_response import VoiceResponse, Gather, Dial
     from backend.app.agents.voice_calling_agent import VoiceCallingAgent, sanitize_dialogue_text
+    from backend.app.core.config import settings
     import urllib.parse
     
     twiml = VoiceResponse()
-    
+    session_id = CallSid or To or Called
+    base_url = (settings.TWILIO_WEBHOOK_URL or "https://nice-trains-spend.loca.lt").rstrip('/')
+
+    action_url = (
+        f"{base_url}/api/v1/outreach/voice/turn"
+        f"?company={urllib.parse.quote(company)}"
+        f"&prospect={urllib.parse.quote(prospect)}"
+        f"&service={urllib.parse.quote(service)}"
+        f"&sender={urllib.parse.quote(sender)}"
+        f"&company_sender={urllib.parse.quote(company_sender)}"
+        f"&sender_phone={urllib.parse.quote(sender_phone)}"
+    )
+
     if not SpeechResult or not SpeechResult.strip():
-        action_url = (
-            f"/api/v1/outreach/voice/turn"
-            f"?company={urllib.parse.quote(company)}"
-            f"&prospect={urllib.parse.quote(prospect)}"
-            f"&service={urllib.parse.quote(service)}"
-            f"&sender={urllib.parse.quote(sender)}"
-            f"&company_sender={urllib.parse.quote(company_sender)}"
-            f"&sender_phone={urllib.parse.quote(sender_phone)}"
-        )
         gather = Gather(
-            input='speech',
+            input='speech dtmf',
             action=action_url,
             method='POST',
             speech_timeout='auto',
-            timeout=7,
+            timeout=8,
             language='en-US'
         )
         gather.say(f"I am still here with you, {prospect}! How have business and customer bookings been going for {company} lately?", voice="Polly.Joanna", language="en-US")
         twiml.append(gather)
+        twiml.say(f"Thank you for your time. Feel free to call back our owner Vivek Patel at +91 9408082933. Have a wonderful day!", voice="Polly.Joanna", language="en-US")
+        twiml.hangup()
         return Response(content=str(twiml), media_type="application/xml")
-        
+
+    # 1. Record prospect spoken audio transcript to live session
+    VoiceCallingAgent.record_live_turn(
+        identifier=session_id,
+        speaker="prospect",
+        text=SpeechResult.strip(),
+        sentiment="interested"
+    )
+
+    # 2. Process through consultative sales engine
     req = CallInteractRequest(
-        user_speech=SpeechResult,
+        user_speech=SpeechResult.strip(),
         company_name=company,
         prospect_name=prospect,
         sender_company=company_sender,
@@ -223,29 +242,36 @@ async def twilio_voice_turn(
     )
     result = await VoiceCallingAgent.respond_to_live_speech(req)
     clean_text = sanitize_dialogue_text(result.ai_response_text)
-    
+
+    # 3. Record AI speech transcript to live session
+    VoiceCallingAgent.record_live_turn(
+        identifier=session_id,
+        speaker="ai",
+        text=clean_text,
+        sentiment=result.sentiment
+    )
+
+    # 4. Warm live transfer to owner Vivek Patel
     if result.is_forwarded or result.is_deal_closed:
+        VoiceCallingAgent.record_live_turn(
+            identifier=session_id,
+            speaker="system",
+            text="🔥 Warm transfer activated. Call bridged live to Vivek Patel at +919408082933.",
+            sentiment="forwarded",
+            is_forwarded=True
+        )
         twiml.say(clean_text, voice="Polly.Joanna", language="en-US")
         twiml.say("Transferring your call directly to our owner, Vivek Patel, right now. Please hold while the line bridges!", voice="Polly.Joanna", language="en-US")
-        dial = Dial()
+        dial = Dial(caller_id="+12362044214")
         dial.number("+919408082933")
         twiml.append(dial)
     else:
-        action_url = (
-            f"/api/v1/outreach/voice/turn"
-            f"?company={urllib.parse.quote(company)}"
-            f"&prospect={urllib.parse.quote(prospect)}"
-            f"&service={urllib.parse.quote(service)}"
-            f"&sender={urllib.parse.quote(sender)}"
-            f"&company_sender={urllib.parse.quote(company_sender)}"
-            f"&sender_phone={urllib.parse.quote(sender_phone)}"
-        )
         gather = Gather(
-            input='speech',
+            input='speech dtmf',
             action=action_url,
             method='POST',
             speech_timeout='auto',
-            timeout=7,
+            timeout=8,
             language='en-US'
         )
         gather.say(clean_text, voice="Polly.Joanna", language="en-US")
@@ -253,51 +279,14 @@ async def twilio_voice_turn(
         # Fallback if prospect says nothing or call concludes
         twiml.say(f"Thank you for speaking with me, {prospect}. You can reach our owner, Vivek Patel, directly at +91 9408082933. Have a wonderful day!", voice="Polly.Joanna", language="en-US")
         twiml.hangup()
-        
+
     return Response(content=str(twiml), media_type="application/xml")
-        
-    req = CallInteractRequest(
-        user_speech=SpeechResult,
-        company_name=company,
-        prospect_name=prospect,
-        sender_company=company_sender,
-        sender_name=sender,
-        service_offered=service,
-        value_proposition="Delivering bespoke brand redesigns and commercial assets that increase customer acquisition by 40%."
-    )
-    result = await VoiceCallingAgent.respond_to_live_speech(req)
-    clean_text = sanitize_dialogue_text(result.ai_response_text)
-    
-    if result.is_forwarded or result.is_deal_closed:
-        twiml.say(clean_text, voice="Polly.Joanna", language="en-US")
-        twiml.say(f"Transferring our line live to {sender} right now. Please hold for two seconds while the bridge connects.", voice="Polly.Joanna", language="en-US")
-        twiml.pause(length=1)
-        twiml.say(f"Thank you for connecting with {company_sender}. Have a wonderful day!", voice="Polly.Joanna", language="en-US")
-        twiml.hangup()
-    else:
-        action_url = (
-            f"/api/v1/outreach/voice/turn"
-            f"?company={urllib.parse.quote(company)}"
-            f"&prospect={urllib.parse.quote(prospect)}"
-            f"&service={urllib.parse.quote(service)}"
-            f"&sender={urllib.parse.quote(sender)}"
-            f"&company_sender={urllib.parse.quote(company_sender)}"
-            f"&sender_phone={urllib.parse.quote(sender_phone)}"
-        )
-        gather = Gather(
-            input='speech',
-            action=action_url,
-            method='POST',
-            speech_timeout='auto',
-            language='en-US'
-        )
-        gather.say(clean_text, voice="Polly.Joanna", language="en-US")
-        twiml.append(gather)
-        # Fallback if prospect says nothing or call concludes
-        twiml.say(f"Thank you for speaking with me, {prospect}. You can reach {sender} directly at {sender_phone}. Have a great day!", voice="Polly.Joanna", language="en-US")
-        twiml.hangup()
-        
-    return Response(content=str(twiml), media_type="application/xml")
+
+@router.get("/voice/live-transcript")
+async def get_live_call_transcript(identifier: Optional[str] = Query(None)):
+    """Agent 11: Real-time transcript polling for dashboard audio viewer"""
+    from backend.app.agents.voice_calling_agent import VoiceCallingAgent
+    return VoiceCallingAgent.get_live_session(identifier)
 
 @router.post("/call/initiate", response_model=CallSessionResponse)
 async def initiate_voice_call(
