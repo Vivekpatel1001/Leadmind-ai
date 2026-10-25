@@ -810,6 +810,46 @@ class VoiceCallingAgent:
                 sentiment="interested"
             )
 
+        # Q&A: Source of Contact / Where did you get my number?
+        if matches_any_intent([
+            "where did you get my number", "how did you get my number", "where did you find me",
+            "how did you find me", "how did you find my number", "where did you get this number",
+            "how do you have my number", "who gave you my number"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"We came across {company_name}'s public business listing and local customer reviews while researching standout brands in your area. "
+                    f"We were really impressed with your business and wanted to introduce ourselves directly! What are your main growth goals right now?"
+                ),
+                sentiment="positive"
+            )
+
+        # Q&A: Portfolio / Case Studies / Examples
+        if matches_any_intent([
+            "portfolio", "case studies", "case study", "examples", "example",
+            "past work", "previous work", "show me work", "proof", "results"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"Absolutely! We have before-and-after case studies demonstrating a 35% to 45% increase in customer bookings for brands similar to {company_name}. "
+                    f"I can send a quick link over to your email right now. What is the best email to reach you?"
+                ),
+                sentiment="interested"
+            )
+
+        # Q&A: Turnaround Time / How Fast
+        if matches_any_intent([
+            "how long does it take", "turnaround", "timeline", "how fast",
+            "timeframe", "how long will it take", "when can we start"
+        ], user_spoken):
+            return CallInteractResponse(
+                ai_response_text=(
+                    f"Our turnaround is lightning fast! We deliver your customized, ready-to-launch creative assets and acquisition setup within 48 to 72 hours, "
+                    f"so {company_name} can begin seeing new customer inquiries right away."
+                ),
+                sentiment="interested"
+            )
+
         # Objections: Busy / Time Constraint
         if matches_any_intent([
             "busy", "in a meeting", "can't talk", "cant talk", "call me later", "call later",
