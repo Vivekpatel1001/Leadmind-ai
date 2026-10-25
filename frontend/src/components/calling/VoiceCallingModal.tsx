@@ -138,7 +138,11 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
             setTurns(liveData.turns);
             if (liveData.is_forwarded && currentStepRef.current !== 'forwarded') {
               setStep('forwarded');
+              playBridgeChime();
             }
+          }
+          if (liveData?.status === 'completed' && currentStepRef.current === 'connected') {
+            handleEndCall();
           }
         } catch (e) {
           // Poll note
@@ -221,6 +225,34 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
         ringAudioRef.current.close();
       }
       ringAudioRef.current = null;
+    } catch (e) {
+      // Ignored
+    }
+  };
+
+  const playBridgeChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+      
+      const playTone = (freq: number, start: number, dur: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.14, start);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + dur);
+      };
+
+      playTone(523.25, now + 0.05, 0.35); // C5
+      playTone(659.25, now + 0.25, 0.35); // E5
+      playTone(783.99, now + 0.45, 0.75); // G5 harmonic bridge chime
     } catch (e) {
       // Ignored
     }
@@ -415,6 +447,7 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
 
       if (response.is_forwarded || response.is_deal_closed) {
         setStep('forwarded');
+        playBridgeChime();
         const transferTurn: CallDialogueTurn = {
           speaker: 'system',
           text: `🔥 Warm transfer activated. Call bridged live to ${senderName} on ${senderPhone}.`,

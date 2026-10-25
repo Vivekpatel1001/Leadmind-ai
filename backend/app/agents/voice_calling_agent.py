@@ -158,6 +158,37 @@ class VoiceCallingAgent:
         return None
 
     @classmethod
+    def update_call_status(
+        cls,
+        identifier: Optional[str],
+        call_status: str,
+        duration: Optional[int] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Updates call status and logs status transitions."""
+        session = None
+        if identifier and identifier in cls._LIVE_CALL_REGISTRY:
+            session = cls._LIVE_CALL_REGISTRY[identifier]
+        elif "latest" in cls._LIVE_CALL_REGISTRY:
+            session = cls._LIVE_CALL_REGISTRY["latest"]
+
+        if session is not None:
+            status_lower = (call_status or "").lower()
+            if status_lower in ["in-progress", "answered"]:
+                session["status"] = "connected"
+            elif status_lower in ["completed"]:
+                if not session.get("is_forwarded"):
+                    session["status"] = "completed"
+            elif status_lower in ["busy", "no-answer", "failed", "canceled"]:
+                session["status"] = "not_answered"
+
+            if duration:
+                session["duration_seconds"] = int(duration)
+
+            session["last_updated"] = datetime.utcnow().isoformat()
+            return session
+        return None
+
+    @classmethod
     def get_live_session(cls, identifier: Optional[str] = None) -> Dict[str, Any]:
         """Retrieves the live call session by call SID, call ID, phone number, or returns latest."""
         if identifier and identifier in cls._LIVE_CALL_REGISTRY:
@@ -267,10 +298,14 @@ class VoiceCallingAgent:
                     language="en-US"
                 )
 
+                status_callback_url = f"{webhook_clean}/api/v1/outreach/voice/status"
                 twilio_call = client.calls.create(
                     to=clean_lead_phone,
                     from_=twilio_from,
-                    twiml=str(vr)
+                    twiml=str(vr),
+                    status_callback=status_callback_url,
+                    status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+                    status_callback_method='POST'
                 )
                 real_call_dispatched = True
                 twilio_call_id = twilio_call.sid

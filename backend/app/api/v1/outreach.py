@@ -288,6 +288,25 @@ async def get_live_call_transcript(identifier: Optional[str] = Query(None)):
     from backend.app.agents.voice_calling_agent import VoiceCallingAgent
     return VoiceCallingAgent.get_live_session(identifier)
 
+@router.post("/voice/status")
+async def twilio_voice_status_webhook(
+    CallSid: Optional[str] = Form(None),
+    CallStatus: Optional[str] = Form(None),
+    CallDuration: Optional[str] = Form(None),
+    To: Optional[str] = Form(None),
+    From: Optional[str] = Form(None)
+):
+    """Twilio Call Status Webhook: tracks initiated, ringing, answered, completed telecom events"""
+    from backend.app.agents.voice_calling_agent import VoiceCallingAgent
+    session_id = CallSid or To
+    duration_val = int(CallDuration) if CallDuration and CallDuration.isdigit() else None
+    VoiceCallingAgent.update_call_status(
+        identifier=session_id,
+        call_status=CallStatus or "in-progress",
+        duration=duration_val
+    )
+    return {"status": "ok", "call_sid": CallSid, "call_status": CallStatus}
+
 @router.post("/call/initiate", response_model=CallSessionResponse)
 async def initiate_voice_call(
     req: CallInitiateRequest,
