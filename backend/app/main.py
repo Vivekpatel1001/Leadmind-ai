@@ -184,4 +184,3 @@ async def root_twilio_voice():
     )
     twiml.pause(length=1)
     return Response(content=str(twiml), media_type="application/xml")
-
