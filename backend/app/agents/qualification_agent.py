@@ -49,10 +49,14 @@ class QualificationAgent:
             "negatives": ["united kingdom", "uk", "london", "united states", "usa", "canada", "toronto", "india", "new zealand"]
         },
         "india": {
-            "names": ["india", "indian", "bharat"],
-            "tlds": [".in", ".co.in", ".net.in", ".org.in", ".gov.in", ".res.in"],
-            "phone_prefixes": ["+91", "079", "022", "011", "080", "044", "040", "033", "020", "0124", "0120"],
-            "cities": ["ahmedabad", "surat", "vadodara", "rajkot", "gandhinagar", "bhavnagar", "jamnagar", "mumbai", "delhi", "new delhi", "bengaluru", "bangalore", "hyderabad", "chennai", "kolkata", "pune", "jaipur", "lucknow", "kanpur", "nagpur", "indore", "noida", "gurgaon", "gurugram", "chandigarh", "kochi"],
+            "names": ["india", "indian", "bharat", "gujarat", "maharashtra"],
+            "tlds": [".in", ".co.in", ".net.in", ".org.in", ".gov.in", ".res.in", ".edu.in"],
+            "phone_prefixes": ["+91", "079", "0265", "0261", "0281", "022", "011", "080", "044", "040", "033", "020", "0124", "0120"],
+            "cities": [
+                "ahmedabad", "surat", "vadodara", "baroda", "rajkot", "gandhinagar", "bhavnagar", "jamnagar", "mumbai", "delhi", "new delhi",
+                "bengaluru", "bangalore", "hyderabad", "chennai", "kolkata", "pune", "jaipur", "lucknow", "kanpur", "nagpur", "indore", "noida", "gurgaon", "gurugram", "chandigarh", "kochi",
+                "waghodia", "fatehgunj", "alkapuri", "akota", "gotri", "karelibaug", "nizampura", "sama", "subhanpura", "gorwa", "makarpura", "tarsali", "vasna", "bhayli", "chhani", "atladara", "harni", "sayajigunj", "manjalpur", "navrangpura", "satellite", "vastrapur", "bopal", "thaltej"
+            ],
             "negatives": ["united kingdom", "uk", "london", "united states", "usa", "new york", "canada", "toronto", "australia", "new zealand"]
         }
     }
@@ -195,10 +199,33 @@ class QualificationAgent:
 
         # Industry & Business Type match
         target_ind = (req.industry or req.business_type or "").lower()
+        target_q = (req.target_query or "").lower()
         lead_ind = (lead.get("industry") or "").lower()
         lead_type = (lead.get("business_type") or "").lower()
+        lead_name = (lead.get("business_name") or "").lower()
+        lead_desc = (lead.get("description") or "").lower()
+        combined_lead = f"{lead_ind} {lead_type} {lead_name} {lead_desc}".lower()
 
-        if target_ind in lead_ind or target_ind in lead_type or lead_ind in target_ind or target_ind == "general business" or target_ind == "retail & local commerce":
+        # Semantic synonym groups
+        industry_groups = {
+            "automotive": ["automotive", "car", "dealer", "motors", "vehicle", "automobile", "showroom", "garage", "tata", "nissan", "maruti", "hyundai", "toyota", "datsun"],
+            "education": ["education", "school", "college", "university", "vidyalaya", "academy", "institute", "child_care_agency", "society", "navrachana", "navrachna"],
+            "healthcare": ["healthcare", "dental", "clinic", "hospital", "doctor", "dentist", "medical", "pharmacy"],
+            "retail & local commerce": ["retail", "shop", "store", "commerce", "xerox", "zerox", "printing", "stationery", "market", "copier"],
+            "food & beverage": ["food", "beverage", "restaurant", "cafe", "dining", "bakery", "bar", "bistro"],
+            "technology & software": ["technology", "software", "tech", "it", "web", "saas", "digital", "developer"],
+            "design & creative": ["design", "creative", "branding", "studio", "graphic", "agency", "marketing"]
+        }
+
+        matched_synonym = False
+        target_combined = f"{target_ind} {target_q}".strip()
+        for grp_key, grp_terms in industry_groups.items():
+            if any(term in target_combined for term in grp_terms):
+                if any(term in combined_lead for term in grp_terms):
+                    matched_synonym = True
+                    break
+
+        if matched_synonym or target_ind in lead_ind or target_ind in lead_type or lead_ind in target_ind or target_ind in ["general business", "commercial business"]:
             reasons.append(f"Strong industry alignment with {lead.get('industry')} ({lead.get('business_type')})")
             score_hints += 3
         else:

@@ -30,26 +30,8 @@ class GooglePlacesTool:
         """Sanitize business name from Google Places to remove encoding glitches and tagline noise."""
         if not raw_name:
             return "Commercial Business"
-        # Fix encoding artifacts
-        name = raw_name.replace("\ufffd", "-").strip()
-        # Remove trailing pipe / dash slogans
-        if " | " in name:
-            name = name.split(" | ")[0].strip()
-        if " – " in name:
-            name = name.split(" – ")[0].strip()
-        if " — " in name:
-            name = name.split(" — ")[0].strip()
-        
-        # Strip trailing category taglines (e.g. "Brandmedia - Graphic Design & Brand Specialists" -> "Brandmedia")
-        if " - " in name:
-            parts = name.split(" - ")
-            if len(parts[0].strip()) >= 3 and any(cat in parts[1].lower() for cat in ["graphic design", "web design", "agency", "restaurant", "store", "shop", "clinic", "services", "solutions", "marketing", "studio", "studios"]):
-                name = parts[0].strip()
-        
-        # Strip leading/trailing non-alphanumeric punctuation
-        name = re.sub(r'^[^\w\(\)]+', '', name)
-        name = re.sub(r'[^\w\.\'\)]+$', '', name)
-        return name[:60].strip()
+        from backend.app.tools.business_validator import BusinessValidator
+        return BusinessValidator.clean_name(raw_name)
 
     @classmethod
     def extract_city_from_address(cls, addr: str, default_city: Optional[str] = None, country: Optional[str] = None) -> str:
@@ -104,6 +86,7 @@ class GooglePlacesTool:
         region: Optional[str] = None,
         industry: str = "Commercial Business",
         service: Optional[str] = None,
+        target_query: Optional[str] = None,
         limit: int = 20
     ) -> List[Dict[str, Any]]:
         api_key = settings.GOOGLE_MAPS_API_KEY
@@ -137,9 +120,9 @@ class GooglePlacesTool:
 
                 location_str = ", ".join(loc_parts).strip()
                 
-                # Construct high-intent target query
-                target_term = industry
-                if not target_term or target_term.lower() in ["commercial business", "general business"]:
+                # Construct high-intent target query preserving user's specific target
+                target_term = (target_query or industry or "").strip()
+                if not target_term or target_term.lower() in ["commercial business", "general business", "commercial businesses"]:
                     if service and any(w in service.lower() for w in ["graphic", "brand", "logo", "creative", "design"]):
                         target_term = "graphic design branding agencies studios"
                     elif service and any(w in service.lower() for w in ["web", "software", "tech", "app"]):
@@ -149,14 +132,18 @@ class GooglePlacesTool:
                     else:
                         target_term = "commercial businesses"
 
-                text_query = f"{target_term} in {location_str}".strip()
+                # Avoid duplicate city if already inside target_term
+                if target_city and target_city.lower() in target_term.lower():
+                    text_query = f"{target_term}, {country or ''}".strip(", ")
+                else:
+                    text_query = f"{target_term} in {location_str}".strip()
 
                 payload = {
                     "textQuery": text_query,
-                    "maxResultCount": min(10, max(4, limit // len(cities_to_query) + 2))
+                    "maxResultCount": min(20, max(10, limit // len(cities_to_query) + 2))
                 }
 
-                tasks.append(cls._execute_query(client, headers, payload, country, target_city or city, location_str, industry))
+                tasks.append(cls._execute_query(client, headers, payload, country, target_city or city, location_str, target_term or industry))
 
             hub_responses = await asyncio.gather(*tasks, return_exceptions=True)
             for resp in hub_responses:

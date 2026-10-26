@@ -17,6 +17,8 @@ class RequirementPayload(BaseModel):
     must_have_website: bool = False
     new_leads_only: bool = False
     clarification_needed: Optional[str] = None
+    target_query: Optional[str] = None
+    raw_query: Optional[str] = None
 
 class SearchRequest(BaseModel):
     query: str

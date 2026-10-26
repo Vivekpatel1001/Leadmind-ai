@@ -281,11 +281,43 @@ class RequirementAgent:
         "katargam": ("Katargam, Surat", "Gujarat", "India"),
         "rander": ("Rander, Surat", "Gujarat", "India"),
         "piplod": ("Piplod, Surat", "Gujarat", "India"),
+        # --- VADODARA (BARODA) LOCALITIES & AREAS ---
         "alkapuri": ("Alkapuri, Vadodara", "Gujarat", "India"),
+        "fatehgunj": ("Fatehgunj, Vadodara", "Gujarat", "India"),
+        "fatehganj": ("Fatehgunj, Vadodara", "Gujarat", "India"),
+        "fateh gunj": ("Fatehgunj, Vadodara", "Gujarat", "India"),
+        "waghodia": ("Waghodia, Vadodara", "Gujarat", "India"),
+        "waghodia road": ("Waghodia Road, Vadodara", "Gujarat", "India"),
+        "waghodia rd": ("Waghodia Road, Vadodara", "Gujarat", "India"),
         "manjalpur": ("Manjalpur, Vadodara", "Gujarat", "India"),
         "sayajigunj": ("Sayajigunj, Vadodara", "Gujarat", "India"),
+        "sayajiganj": ("Sayajigunj, Vadodara", "Gujarat", "India"),
         "gotri": ("Gotri, Vadodara", "Gujarat", "India"),
         "akota": ("Akota, Vadodara", "Gujarat", "India"),
+        "sama": ("Sama, Vadodara", "Gujarat", "India"),
+        "new sama": ("New Sama, Vadodara", "Gujarat", "India"),
+        "sama savli road": ("Sama Savli Road, Vadodara", "Gujarat", "India"),
+        "karelibaug": ("Karelibaug, Vadodara", "Gujarat", "India"),
+        "nizampura": ("Nizampura, Vadodara", "Gujarat", "India"),
+        "subhanpura": ("Subhanpura, Vadodara", "Gujarat", "India"),
+        "gorwa": ("Gorwa, Vadodara", "Gujarat", "India"),
+        "bidc gorwa": ("BIDC Gorwa, Vadodara", "Gujarat", "India"),
+        "makarpura": ("Makarpura, Vadodara", "Gujarat", "India"),
+        "makarpura gidc": ("Makarpura GIDC, Vadodara", "Gujarat", "India"),
+        "tarsali": ("Tarsali, Vadodara", "Gujarat", "India"),
+        "vasna": ("Vasna, Vadodara", "Gujarat", "India"),
+        "bhayli": ("Bhayli, Vadodara", "Gujarat", "India"),
+        "chhani": ("Chhani, Vadodara", "Gujarat", "India"),
+        "old chhani road": ("Old Chhani Road, Vadodara", "Gujarat", "India"),
+        "atladara": ("Atladara, Vadodara", "Gujarat", "India"),
+        "harni": ("Harni, Vadodara", "Gujarat", "India"),
+        "dandia bazar": ("Dandia Bazar, Vadodara", "Gujarat", "India"),
+        "mandvi vadodara": ("Mandvi, Vadodara", "Gujarat", "India"),
+        "raopura": ("Raopura, Vadodara", "Gujarat", "India"),
+        "muj mahuda": ("Muj Mahuda, Vadodara", "Gujarat", "India"),
+        "munj mahuda": ("Muj Mahuda, Vadodara", "Gujarat", "India"),
+        "ranoli": ("Ranoli, Vadodara", "Gujarat", "India"),
+        "ranoli gidc": ("Ranoli GIDC, Vadodara", "Gujarat", "India"),
         "yagnik road": ("Yagnik Road, Rajkot", "Gujarat", "India"),
         "kalawad road": ("Kalawad Road, Rajkot", "Gujarat", "India"),
         "infocity": ("Infocity, Gandhinagar", "Gujarat", "India"),
@@ -405,6 +437,55 @@ class RequirementAgent:
     }
 
     INDUSTRIES_MAP = {
+        # Education & Academics
+        "education society": ("Education & Academics", "Education Society"),
+        "educational society": ("Education & Academics", "Education Society"),
+        "education": ("Education & Academics", "Educational Institution"),
+        "colleges": ("Education & Academics", "College"),
+        "college": ("Education & Academics", "College"),
+        "universities": ("Education & Academics", "University"),
+        "university": ("Education & Academics", "University"),
+        "schools": ("Education & Academics", "School"),
+        "school": ("Education & Academics", "School"),
+        "vidyalaya": ("Education & Academics", "School"),
+        "institute": ("Education & Academics", "Educational Institute"),
+        "institutes": ("Education & Academics", "Educational Institutes"),
+        "academy": ("Education & Academics", "Academy"),
+        "coaching classes": ("Education & Academics", "Coaching Institute"),
+        "coaching class": ("Education & Academics", "Coaching Institute"),
+
+        # Automotive & Dealerships
+        "car dealer": ("Automotive", "Car Dealership"),
+        "car dealers": ("Automotive", "Car Dealership"),
+        "car dealership": ("Automotive", "Car Dealership"),
+        "car dealerships": ("Automotive", "Car Dealership"),
+        "car showroom": ("Automotive", "Car Showroom"),
+        "car showrooms": ("Automotive", "Car Showroom"),
+        "motors dealers": ("Automotive", "Automotive Dealership"),
+        "motor dealers": ("Automotive", "Automotive Dealership"),
+        "dealers": ("Automotive", "Dealership"),
+        "dealer": ("Automotive", "Dealership"),
+        "dealership": ("Automotive", "Dealership"),
+        "showroom": ("Automotive", "Automotive Showroom"),
+        "showrooms": ("Automotive", "Automotive Showrooms"),
+        "automotive": ("Automotive", "Automotive Business"),
+        "motors": ("Automotive", "Automotive Business"),
+        "motor": ("Automotive", "Automotive Business"),
+
+        # Xerox, Printing & Stationery
+        "zerox shop": ("Retail & Local Commerce", "Xerox & Printing Shop"),
+        "zerox shops": ("Retail & Local Commerce", "Xerox & Printing Shop"),
+        "zerox": ("Retail & Local Commerce", "Xerox & Printing Shop"),
+        "xerox shop": ("Retail & Local Commerce", "Xerox & Printing Shop"),
+        "xerox shops": ("Retail & Local Commerce", "Xerox & Printing Shop"),
+        "xerox": ("Retail & Local Commerce", "Xerox & Printing Shop"),
+        "photocopy shop": ("Retail & Local Commerce", "Photocopy & Printing Shop"),
+        "photocopy": ("Retail & Local Commerce", "Photocopy Shop"),
+        "print shop": ("Retail & Local Commerce", "Printing & Stationery Shop"),
+        "print shops": ("Retail & Local Commerce", "Printing & Stationery Shop"),
+        "printing shop": ("Retail & Local Commerce", "Printing & Stationery Shop"),
+        "printing press": ("Retail & Local Commerce", "Printing Press"),
+
         # Retail, Shops & Local Businesses
         "clothing shop": ("Retail & Fashion", "Clothing Store"),
         "clothing store": ("Retail & Fashion", "Clothing Store"),
@@ -741,12 +822,22 @@ class RequirementAgent:
             except Exception:
                 pass
 
-        # If user explicitly asked for leads without specifying a country, check user preference
+        # If user explicitly asked for leads without specifying a country, check user preference & locality context
         if not country:
-            if user_preferences and user_preferences.get("target_country"):
+            if region == "Gujarat" or (city and any(ind_c in city for ind_c in ["Vadodara", "Ahmedabad", "Surat", "Rajkot", "Gandhinagar", "Waghodia", "Fatehgunj", "Sama", "Gotri", "Alkapuri", "Makarpura", "Manjalpur", "Akota", "Navrangpura", "Satellite", "Bopal"])):
+                country = "India"
+                if not region:
+                    region = "Gujarat"
+            elif user_preferences and user_preferences.get("target_country"):
                 country = user_preferences["target_country"]
             else:
-                country = "India" if (region == "Gujarat" or (city and "Ahmedabad" in city)) else "United States"
+                # Check for Indian context keywords
+                indian_signals = ["vadodara", "ahmedabad", "surat", "rajkot", "gujarat", "mumbai", "delhi", "bangalore", "bengaluru", "waghodia", "fatehgunj", "sama", "tata", "maruti", "mahindra", "kirana", "farsan", "navrachna", "navrachana", "zerox"]
+                if any(sig in q_lower for sig in indian_signals):
+                    country = "India"
+                    region = "Gujarat"
+                else:
+                    country = "India"
 
         # 4. Extract explicit need/service vs target business
         service = None
@@ -760,27 +851,66 @@ class RequirementAgent:
                     service = cls.SERVICES_MAP[s_key]
                     break
 
-        # 5. Industry & Business Type extraction
+        # 5. Extract core target entity / category query from raw input
+        target_query = q_clean
+        # Strip command verbs: "find 10", "search", "show 5"
+        target_query = re.sub(r'^(?:find|search|get|show|give|fetch|discover|list)\s+(?:\d{1,4}\s+)?', '', target_query, flags=re.IGNORECASE)
+        # Strip offered service phrases: "that need graphic design", etc.
+        target_query = re.sub(r'(?:that need|who need|which need|could need|that could need|which could need|in need of|requiring|looking for|needs|need|offering|to pitch)\s+[a-zA-Z\s&/]+', '', target_query, flags=re.IGNORECASE)
+        # Strip constraint phrases: "with phone numbers", etc.
+        target_query = re.sub(r'\b(?:with|has|having)\s+(?:phone|number|website|email|official).*', '', target_query, flags=re.IGNORECASE)
+        target_query = re.sub(r'\b(?:phone numbers?|official websites?|new leads only)\b', '', target_query, flags=re.IGNORECASE)
+        # Strip location suffix if present
+        target_query = re.sub(r'\b(?:in|near|at|around|from)\s+[A-Za-z\s,]+$', '', target_query, flags=re.IGNORECASE).strip(" ,.-")
+        # Strip superlative adjectives: "best", "top", "famous", "popular", "top-rated"
+        target_query = re.sub(r'\b(?:the\s+)?(?:best|top|greatest|finest|leading|popular|famous|top-rated|highest\s+rated|cheap|affordable|budget|luxury|recommended)\b', '', target_query, flags=re.IGNORECASE)
+        target_query = re.sub(r'^\s*\d{1,3}\s+', '', target_query)
+        target_query = re.sub(r'\s+', ' ', target_query).strip(" ,.-")
+        if not target_query or len(target_query) < 3:
+            target_query = None
+
+        # 6. Industry & Business Type extraction
         industry = None
         business_type = None
 
+        # Check explicit car brand / automotive manufacturer match
+        manufacturer_match = re.search(
+            r"\b(nissan|toyota|hyundai|honda|ford|kia|mahindra|maruti(?:\s+suzuki)?|"
+            r"volkswagen|mg|skoda|renault|bmw|audi|mercedes(?:[- ]benz)?|tata)\b",
+            q_lower,
+        )
+        if manufacturer_match and re.search(r"\b(?:dealer|dealership|showroom|motors?|cars?)\b", q_lower):
+            manufacturer = manufacturer_match.group(1).title()
+            industry = "Automotive"
+            business_type = f"{manufacturer} Dealer"
+            if not target_query:
+                target_query = f"{manufacturer} Motors Dealers"
+
+        # Check education / society / university / school match
+        if not industry and re.search(r"\b(?:education\s+society|education|school|schools|college|colleges|university|universities|vidyalaya|academy|institute)\b", q_lower):
+            industry = "Education & Academics"
+            business_type = "Education Society & Institutions"
+
+        # Check xerox / zerox / printing
+        if not industry and re.search(r"\b(?:xerox|zerox|photocopy|copy\s*shop|printing?|print\s*shop)\b", q_lower):
+            industry = "Retail & Local Commerce"
+            business_type = "Xerox & Printing Shop"
+
         # Search for explicit industry keywords
-        for keyword in sorted(cls.INDUSTRIES_MAP.keys(), key=lambda x: -len(x)):
-            # If this keyword is in the query
-            if re.search(r'\b' + re.escape(keyword) + r'\b', q_lower):
-                # If we already matched this exact term as the offered service (e.g. "that need graphic design"), don't make it the target industry
-                if need_match and keyword in need_match.group(0):
-                    continue
-                ind, btype = cls.INDUSTRIES_MAP[keyword]
-                industry = ind
-                business_type = btype
-                break
+        if not industry:
+            for keyword in sorted(cls.INDUSTRIES_MAP.keys(), key=lambda x: -len(x)):
+                if re.search(r'\b' + re.escape(keyword) + r'\b', q_lower):
+                    if need_match and keyword in need_match.group(0):
+                        continue
+                    ind, btype = cls.INDUSTRIES_MAP[keyword]
+                    industry = ind
+                    business_type = btype
+                    break
 
         # If no industry matched yet, but a service was mentioned without "need/for" (e.g. "Find graphic design agencies")
         if not industry:
             for s_key in sorted(cls.SERVICES_MAP.keys(), key=lambda x: -len(x)):
                 if re.search(r'\b' + re.escape(s_key) + r'\b', q_lower):
-                    # User is searching FOR these providers!
                     if any(w in s_key for w in ["graphic", "brand", "logo", "creative", "ui", "ux"]):
                         industry = "Design & Creative"
                         business_type = f"{cls.SERVICES_MAP[s_key]} Studio"
@@ -809,6 +939,9 @@ class RequirementAgent:
             elif "clinic" in q_lower or "doctor" in q_lower or "dental" in q_lower:
                 industry = "Healthcare"
                 business_type = "Medical Clinic"
+            elif target_query:
+                industry = target_query.title()
+                business_type = target_query.title()
             else:
                 industry = "Commercial Business"
                 business_type = "Commercial Businesses"
@@ -817,8 +950,19 @@ class RequirementAgent:
             service = "Commercial Growth & Digital Presence"
 
         must_have_email = "with email" in q_lower or "has email" in q_lower
-        must_have_phone = "with phone" in q_lower or "has phone" in q_lower or "with number" in q_lower
-        must_have_website = "with website" in q_lower or "has website" in q_lower
+        must_have_phone = (
+            "with phone" in q_lower
+            or "has phone" in q_lower
+            or "with number" in q_lower
+            or "phone number" in q_lower
+            or "phone numbers" in q_lower
+        )
+        must_have_website = (
+            "with website" in q_lower
+            or "has website" in q_lower
+            or "official website" in q_lower
+            or "official websites" in q_lower
+        )
         new_leads_only = "new" in q_lower or "haven't seen" in q_lower or "haven't found" in q_lower or "not seen" in q_lower or "exclude previous" in q_lower
 
         return RequirementPayload(
@@ -834,6 +978,8 @@ class RequirementAgent:
             must_have_email=must_have_email,
             must_have_phone=must_have_phone,
             must_have_website=must_have_website,
-            new_leads_only=new_leads_only
+            new_leads_only=new_leads_only,
+            target_query=target_query,
+            raw_query=query
         )
 

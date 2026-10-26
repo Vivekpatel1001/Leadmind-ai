@@ -89,17 +89,29 @@ class TavilyTool:
         # Remove trailing slogans/city tags (e.g. "Brandland - Auckland Design Studio" -> "Brandland")
         candidate = re.sub(r'(?i)\b(official website|official site|home page|reviews|nz|uk|usa|australia|canada)\b', '', candidate).strip(" ,.-|:•»")
 
+        from backend.app.tools.business_validator import BusinessValidator
+        if BusinessValidator.is_invalid_name(candidate):
+            domain_brand = cls._extract_domain_brand(url)
+            if domain_brand and not BusinessValidator.is_invalid_name(domain_brand) and not BusinessValidator.is_aggregator_domain(url):
+                return domain_brand
+            return ""
+
         # If candidate still looks like a generic SEO title or listicle or is too generic
         domain_brand = cls._extract_domain_brand(url)
         if not candidate or len(candidate) < 3 or any(w in candidate.lower() for w in ["best graphic", "top graphic", "top 10", "list of", "guide to", "find the", "how to", "website designers"]):
             if domain_brand and len(domain_brand) >= 3 and not any(w in domain_brand.lower() for w in ["blog", "article", "medium", "wordpress"]):
-                return domain_brand
+                if not BusinessValidator.is_invalid_name(domain_brand):
+                    return domain_brand
+            return ""
 
         # Strip leading/trailing non-alphanumeric punctuation
         candidate = re.sub(r'^[^\w\(\)]+', '', candidate)
         candidate = re.sub(r'[^\w\.\'\)]+$', '', candidate)
 
-        return candidate[:50].strip()
+        cleaned = candidate[:50].strip()
+        if BusinessValidator.is_invalid_name(cleaned):
+            return ""
+        return cleaned
 
     @classmethod
     async def search_businesses(
@@ -170,8 +182,10 @@ class TavilyTool:
                         title = item.get("title", "")
                         content = item.get("content", "") or ""
 
+                        from backend.app.tools.business_validator import BusinessValidator
+
                         # Skip generic directories, blogs, listicles
-                        if cls._is_generic_directory(url) or cls._is_listicle_title(title):
+                        if cls._is_generic_directory(url) or cls._is_listicle_title(title) or BusinessValidator.is_aggregator_domain(url):
                             continue
 
                         clean_domain = cls._extract_domain(url)
@@ -179,11 +193,12 @@ class TavilyTool:
                             continue
 
                         b_name = cls._clean_business_name(title, url)
-                        if not b_name or len(b_name) < 2:
+                        if not b_name or len(b_name) < 2 or BusinessValidator.is_invalid_name(b_name):
                             continue
 
                         phone = cls._extract_phone(content)
-                        email = cls._extract_email(content)
+                        raw_email = cls._extract_email(content)
+                        clean_email_val = BusinessValidator.clean_email(raw_email)
                         detected_city = hub or cls._extract_city_from_text(content, c_low) or (city or "Central")
                         address = cls._extract_address(content, detected_city, country)
 
@@ -196,20 +211,25 @@ class TavilyTool:
                             "country": country or "Global",
                             "address": address or f"{detected_city}, {country or ''}".strip(", "),
                             "phone": phone if phone else "Not found",
-                            "email": email if email else (f"contact@{clean_domain}" if clean_domain else "Not found"),
+                            "email": clean_email_val,
                             "website": url,
                             "description": content[:220].strip() if content else f"Verified {industry} operating in {loc_str}.",
                             "source": "Tavily AI Web Intelligence",
                             "verified": True
                         }
 
+                        # Validate and clean through central validator
+                        validated_lead = BusinessValidator.validate_and_clean_lead(lead_record)
+                        if not validated_lead:
+                            continue
+
                         # Strict country verification before adding
                         from backend.app.agents.qualification_agent import QualificationAgent
-                        if country and not QualificationAgent.is_strict_country_match(country, lead_record):
+                        if country and not QualificationAgent.is_strict_country_match(country, validated_lead):
                             continue
 
                         seen_domains.add(clean_domain)
-                        leads.append(lead_record)
+                        leads.append(validated_lead)
 
                         if len(leads) >= limit:
                             return leads
@@ -220,26 +240,90 @@ class TavilyTool:
         return leads
 
     @classmethod
+    async def search_decision_makers(
+        cls,
+        business_name: str,
+        website: Optional[str] = None,
+        city: Optional[str] = None,
+        country: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        api_key = settings.TAVILY_API_KEY
+        if not api_key or not business_name:
+            return []
+
+        clean_domain = cls._extract_domain(website) if website else None
+        loc_str = f"{city or ''} {country or ''}".strip()
+        query = f'"{business_name}" (founder OR owner OR ceo OR director OR "managing director") linkedin {loc_str}'.strip()
+
+        payload = {
+            "api_key": api_key,
+            "query": query,
+            "search_depth": "basic",
+            "include_answer": False,
+            "max_results": 5
+        }
+
+        decision_makers = []
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                res = await client.post(cls.API_URL, json=payload)
+                if res.status_code == 200:
+                    data = res.json()
+                    results = data.get("results", [])
+                    for item in results:
+                        url = item.get("url", "")
+                        title = item.get("title", "")
+                        content = item.get("content", "") or ""
+
+                        if "linkedin.com/in/" in url:
+                            clean_t = re.sub(r'(?i)\s*\|\s*linkedin.*$', '', title).strip()
+                            parts = [p.strip() for p in clean_t.split(" - ") if p.strip()]
+                            name = parts[0] if parts else "Executive"
+                            role = parts[1] if len(parts) > 1 else "Key Decision Maker"
+
+                            decision_makers.append({
+                                "name": name,
+                                "title": role,
+                                "linkedin_url": url,
+                                "email": cls._extract_email(content) or (f"contact@{clean_domain}" if clean_domain else "Not found"),
+                                "confidence": 92,
+                                "source": "Tavily LinkedIn Intelligence"
+                            })
+                            if len(decision_makers) >= 3:
+                                break
+        except Exception as e:
+            print(f"[TavilyTool] Decision maker search note: {e}")
+
+        return decision_makers
+
+    @classmethod
     def _is_generic_directory(cls, url: str) -> bool:
+        from backend.app.tools.business_validator import BusinessValidator
+        if BusinessValidator.is_aggregator_domain(url):
+            return True
         low = url.lower()
         generic_domains = [
             "facebook.com", "instagram.com", "twitter.com", "x.com",
-            "wikipedia.org", "tripadvisor.com", "yelp.com", "yellowpages.",
+            "wikipedia.org", "tripadvisor", "yelp.", "yellowpages.",
             "linkedin.com/directory", "google.com", "clutch.co", "upwork.com",
             "fiverr.com", "behance.net", "dribbble.com", "themanifest.com",
-            "goodfirms.co", "yelp.co.uk", "yell.com", "topdesignfirms.com",
-            "designrush.com", "sortlist.com", "bark.com", "medium.com",
-            "hubspot.com", "forbes.com", "quora.com", "reddit.com", "moneyhub.co.nz",
-            "trademe.co.nz", "gumtree.", "craigslist."
+            "goodfirms.", "yell.com", "topdesignfirms.", "threebestrated",
+            "designrush.", "sortlist.", "bark.com", "medium.com", "wanderlog",
+            "hubspot.com", "forbes.com", "quora.com", "reddit.com", "moneyhub",
+            "trademe.co.nz", "gumtree.", "craigslist.", "zomato", "swiggy",
+            "justdial", "indiamart", "sulekha", "magicbricks", "99acres"
         ]
         return any(d in low for d in generic_domains)
 
     @classmethod
     def _is_listicle_title(cls, title: str) -> bool:
+        from backend.app.tools.business_validator import BusinessValidator
+        if BusinessValidator.is_invalid_name(title):
+            return True
         low = title.lower()
         listicle_signals = [
             "top 10", "top 20", "top 30", "top 50", "top 100",
-            "best 10", "best 20", "best 30", "best 50",
+            "best 10", "best 20", "best 30", "best 50", "best cafe", "best restaurant",
             "top graphic design", "best graphic design",
             "top agencies", "best agencies", "top studios", "best studios",
             "list of", "guide to", "how to find", "companies in the world",

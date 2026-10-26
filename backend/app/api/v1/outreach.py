@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Any, Optional
 from backend.app.database.session import get_db
@@ -131,6 +131,219 @@ async def dispatch_outreach(
     return result
 
 # --- Agent 11: AI Voice Calling & Warm Live Forwarding ---
+@router.get("/twilio/status")
+async def get_twilio_status():
+    """Check Twilio account connectivity, active caller ID number, and verified test numbers"""
+    from backend.app.core.config import settings
+    sid = settings.TWILIO_ACCOUNT_SID
+    token = settings.TWILIO_AUTH_TOKEN
+    phone = settings.TWILIO_PHONE_NUMBER
+    if not sid or not token:
+        return {"configured": False, "message": "Twilio Account SID or Auth Token missing."}
+    
+    try:
+        from twilio.rest import Client
+        client = Client(sid, token)
+        account = client.api.accounts(sid).fetch()
+        verified = [v.phone_number for v in client.outgoing_caller_ids.list()]
+        incoming = [i.phone_number for i in client.incoming_phone_numbers.list()]
+        return {
+            "configured": True,
+            "status": "active",
+            "account_name": account.friendly_name,
+            "account_type": account.type,
+            "from_phone": phone or (incoming[0] if incoming else None),
+            "webhook_url": settings.TWILIO_WEBHOOK_URL,
+            "incoming_numbers": incoming,
+            "verified_caller_ids": verified
+        }
+    except Exception as e:
+        return {"configured": False, "error": str(e)}
+
+@router.post("/voice")
+@router.get("/voice")
+async def twilio_voice_webhook():
+    """TwiML webhook endpoint for incoming calls to the Twilio number (as in Twilio Docs)"""
+    from twilio.twiml.voice_response import VoiceResponse
+    twiml = VoiceResponse()
+    twiml.say(
+        "Hello from LeadMind AI! Your autonomous AI voice calling agent is connected and fully operational. Have a wonderful day!",
+        voice="alice",
+        language="en-US"
+    )
+    twiml.pause(length=1)
+    return Response(content=str(twiml), media_type="application/xml")
+
+@router.post("/voice/whisper")
+@router.get("/voice/whisper")
+async def twilio_voice_whisper(
+    company: Optional[str] = Query("Your Target Business"),
+    prospect: Optional[str] = Query("Decision Maker"),
+    service: Optional[str] = Query("Commercial Branding & Growth")
+):
+    """
+    Twilio Call Screening / Whisper TwiML Webhook:
+    When Twilio dials Vivek Patel (+91 9408082933), Twilio executes this TwiML into Vivek's ear ONLY.
+    Vivek hears: 'Hello Vivek! You have an incoming lead transfer from {prospect} at {company}...'
+    As soon as this <Say> completes, Twilio automatically bridges Vivek with the waiting client live!
+    ZERO manual button clicks required.
+    """
+    from twilio.twiml.voice_response import VoiceResponse
+    twiml = VoiceResponse()
+    twiml.say(
+        f"Hello Vivek! You have an incoming lead transfer from {prospect} at {company}. "
+        f"They are interested in {service} and asked to speak with the owner. Connecting you to the caller right now!",
+        voice="Polly.Joanna",
+        language="en-US"
+    )
+    return Response(content=str(twiml), media_type="application/xml")
+
+@router.post("/voice/turn")
+@router.get("/voice/turn")
+async def twilio_voice_turn(
+    SpeechResult: Optional[str] = Form(None),
+    CallSid: Optional[str] = Form(None),
+    Called: Optional[str] = Form(None),
+    To: Optional[str] = Form(None),
+    From: Optional[str] = Form(None),
+    company: Optional[str] = Query("Your Target Business"),
+    prospect: Optional[str] = Query("there"),
+    service: Optional[str] = Query("Graphic Design & Digital Branding"),
+    sender: Optional[str] = Query("Vivek Patel"),
+    company_sender: Optional[str] = Query("LeadMind AI"),
+    sender_phone: Optional[str] = Query("+91 9408082933")
+):
+    """Twilio Speech Gathering Webhook: receives real-time speech from physical cellular phone"""
+    from twilio.twiml.voice_response import VoiceResponse, Gather, Dial
+    from backend.app.agents.voice_calling_agent import VoiceCallingAgent, sanitize_dialogue_text, clean_phone_number
+    from backend.app.core.config import settings
+    import urllib.parse
+    
+    twiml = VoiceResponse()
+    session_id = CallSid or To or Called
+    base_url = (settings.TWILIO_WEBHOOK_URL or "https://nasty-results-retire.loca.lt").rstrip('/')
+
+    action_url = (
+        f"{base_url}/api/v1/outreach/voice/turn"
+        f"?company={urllib.parse.quote(company)}"
+        f"&prospect={urllib.parse.quote(prospect)}"
+        f"&service={urllib.parse.quote(service)}"
+        f"&sender={urllib.parse.quote(sender)}"
+        f"&company_sender={urllib.parse.quote(company_sender)}"
+        f"&sender_phone={urllib.parse.quote(sender_phone)}"
+    )
+
+    if not SpeechResult or not SpeechResult.strip():
+        gather = Gather(
+            input='speech dtmf',
+            action=action_url,
+            method='POST',
+            speech_timeout='auto',
+            timeout=8,
+            language='en-US'
+        )
+        gather.say(f"I am still here with you, {prospect}! How have business and customer bookings been going for {company} lately?", voice="Polly.Joanna", language="en-US")
+        twiml.append(gather)
+        twiml.say(f"Thank you for your time. Feel free to call back our owner Vivek Patel at +91 9408082933. Have a wonderful day!", voice="Polly.Joanna", language="en-US")
+        twiml.hangup()
+        return Response(content=str(twiml), media_type="application/xml")
+
+    # 1. Record prospect spoken audio transcript to live session
+    VoiceCallingAgent.record_live_turn(
+        identifier=session_id,
+        speaker="prospect",
+        text=SpeechResult.strip(),
+        sentiment="interested"
+    )
+
+    # 2. Process through consultative sales engine
+    req = CallInteractRequest(
+        user_speech=SpeechResult.strip(),
+        company_name=company,
+        prospect_name=prospect,
+        sender_company=company_sender,
+        sender_name=sender,
+        service_offered=service,
+        value_proposition="Transforming brand identity, menu designs, and digital assets to boost conversion rates by 40 percent."
+    )
+    result = await VoiceCallingAgent.respond_to_live_speech(req)
+    clean_text = sanitize_dialogue_text(result.ai_response_text)
+
+    # 3. Record AI speech transcript to live session
+    VoiceCallingAgent.record_live_turn(
+        identifier=session_id,
+        speaker="ai",
+        text=clean_text,
+        sentiment=result.sentiment
+    )
+
+    # 4. Warm live transfer to owner Vivek Patel with automated whisper screening
+    if result.is_forwarded or result.is_deal_closed:
+        VoiceCallingAgent.record_live_turn(
+            identifier=session_id,
+            speaker="system",
+            text=f"🔥 Automated Transfer: Calling owner Vivek Patel (+919408082933), briefing him with {company} details, and bridging line.",
+            sentiment="forwarded",
+            is_forwarded=True
+        )
+        # 1. Inform client to wait while we brief Vivek
+        twiml.say(clean_text, voice="Polly.Joanna", language="en-US")
+        
+        # 2. Automated whisper screening:
+        # Twilio dials Vivek (+91 9408082933). While client waits on hold, Twilio executes whisper_url to Vivek upon answering,
+        # briefs him with lead details into his ear only, and instantly connects both calls together!
+        whisper_url = (
+            f"{base_url}/api/v1/outreach/voice/whisper"
+            f"?company={urllib.parse.quote(company)}"
+            f"&prospect={urllib.parse.quote(prospect)}"
+            f"&service={urllib.parse.quote(service)}"
+        )
+        from_caller = clean_phone_number(settings.TWILIO_PHONE_NUMBER) or "+12362044214"
+        dial = Dial(caller_id=from_caller)
+        dial.number("+919408082933", url=whisper_url)
+        twiml.append(dial)
+    else:
+        gather = Gather(
+            input='speech dtmf',
+            action=action_url,
+            method='POST',
+            speech_timeout='auto',
+            timeout=8,
+            language='en-US'
+        )
+        gather.say(clean_text, voice="Polly.Joanna", language="en-US")
+        twiml.append(gather)
+        # Fallback if prospect says nothing or call concludes
+        twiml.say(f"Thank you for speaking with me, {prospect}. You can reach our owner, Vivek Patel, directly at +91 9408082933. Have a wonderful day!", voice="Polly.Joanna", language="en-US")
+        twiml.hangup()
+
+    return Response(content=str(twiml), media_type="application/xml")
+
+@router.get("/voice/live-transcript")
+async def get_live_call_transcript(identifier: Optional[str] = Query(None)):
+    """Agent 11: Real-time transcript polling for dashboard audio viewer"""
+    from backend.app.agents.voice_calling_agent import VoiceCallingAgent
+    return VoiceCallingAgent.get_live_session(identifier)
+
+@router.post("/voice/status")
+async def twilio_voice_status_webhook(
+    CallSid: Optional[str] = Form(None),
+    CallStatus: Optional[str] = Form(None),
+    CallDuration: Optional[str] = Form(None),
+    To: Optional[str] = Form(None),
+    From: Optional[str] = Form(None)
+):
+    """Twilio Call Status Webhook: tracks initiated, ringing, answered, completed telecom events"""
+    from backend.app.agents.voice_calling_agent import VoiceCallingAgent
+    session_id = CallSid or To
+    duration_val = int(CallDuration) if CallDuration and CallDuration.isdigit() else None
+    VoiceCallingAgent.update_call_status(
+        identifier=session_id,
+        call_status=CallStatus or "in-progress",
+        duration=duration_val
+    )
+    return {"status": "ok", "call_sid": CallSid, "call_status": CallStatus}
+
 @router.post("/call/initiate", response_model=CallSessionResponse)
 async def initiate_voice_call(
     req: CallInitiateRequest,

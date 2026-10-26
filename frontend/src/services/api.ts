@@ -199,6 +199,12 @@ export const api = {
   },
 
   // Agent 11: AI Voice Calling & Warm Forwarding
+  async getTwilioStatus(): Promise<any> {
+    const res = await fetch(`${API_BASE}/outreach/twilio/status`);
+    if (!res.ok) throw new Error('Failed to fetch Twilio status');
+    return res.json();
+  },
+
   async initiateVoiceCall(payload: {
     lead_id?: string;
     lead_company: string;
@@ -215,6 +221,7 @@ export const api = {
     twilio_account_sid?: string;
     twilio_auth_token?: string;
     twilio_from_phone?: string;
+    twilio_webhook_url?: string;
   }): Promise<any> {
     const res = await fetch(`${API_BASE}/outreach/call/initiate`, {
       method: 'POST',
@@ -241,6 +248,13 @@ export const api = {
       body: JSON.stringify(payload)
     });
     if (!res.ok) throw new Error('Failed to process live voice turn');
+    return res.json();
+  },
+
+  async getLiveCallTranscript(identifier?: string): Promise<any> {
+    const param = identifier ? `?identifier=${encodeURIComponent(identifier)}` : '';
+    const res = await fetch(`${API_BASE}/outreach/voice/live-transcript${param}`);
+    if (!res.ok) throw new Error('Failed to fetch live transcript');
     return res.json();
   },
 

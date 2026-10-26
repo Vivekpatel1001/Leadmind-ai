@@ -45,11 +45,33 @@ class ScoringAgent:
 
         # 2. Industry Match Score (0-25)
         target_ind = (req.industry or req.business_type or "").lower()
+        target_q = (req.target_query or "").lower()
         lead_ind = (lead.get("industry") or "").lower()
         lead_type = (lead.get("business_type") or "").lower()
+        lead_name = (lead.get("business_name") or "").lower()
+        lead_desc = (lead.get("description") or "").lower()
+        combined_lead = f"{lead_ind} {lead_type} {lead_name} {lead_desc}".lower()
+
+        industry_groups = {
+            "automotive": ["automotive", "car", "dealer", "motors", "vehicle", "automobile", "showroom", "garage", "tata", "nissan", "maruti", "hyundai", "toyota", "datsun"],
+            "education": ["education", "school", "college", "university", "vidyalaya", "academy", "institute", "child_care_agency", "society", "navrachana", "navrachna"],
+            "healthcare": ["healthcare", "dental", "clinic", "hospital", "doctor", "dentist", "medical", "pharmacy"],
+            "retail & local commerce": ["retail", "shop", "store", "commerce", "xerox", "zerox", "printing", "stationery", "market", "copier"],
+            "food & beverage": ["food", "beverage", "restaurant", "cafe", "dining", "bakery", "bar", "bistro"],
+            "technology & software": ["technology", "software", "tech", "it", "web", "saas", "digital", "developer"],
+            "design & creative": ["design", "creative", "branding", "studio", "graphic", "agency", "marketing"]
+        }
+
+        matched_synonym = False
+        target_combined = f"{target_ind} {target_q}".strip()
+        for grp_key, grp_terms in industry_groups.items():
+            if any(term in target_combined for term in grp_terms):
+                if any(term in combined_lead for term in grp_terms):
+                    matched_synonym = True
+                    break
 
         industry_score = 0
-        if target_ind in lead_ind or target_ind in lead_type or lead_ind in target_ind or target_ind in ["general business", "retail & local commerce"]:
+        if matched_synonym or target_ind in lead_ind or target_ind in lead_type or lead_ind in target_ind or target_ind in ["general business", "retail & local commerce"]:
             industry_score = 25
         else:
             industry_score = 16
@@ -64,11 +86,15 @@ class ScoringAgent:
         # 4. Data Completeness Score (0-15)
         data_quality_score = 0
         if lead.get("email") and lead.get("email") != "Not found":
-            data_quality_score += 7
+            data_quality_score += 6
         if lead.get("phone") and lead.get("phone") != "Not found":
             data_quality_score += 4
         if lead.get("website"):
-            data_quality_score += 4
+            data_quality_score += 3
+        addr = lead.get("address", "")
+        if addr and len(addr) > 12 and "not found" not in addr.lower():
+            data_quality_score += 2
+        data_quality_score = min(15, data_quality_score)
 
         # 5. Other Criteria (0-10)
         other_score = 0

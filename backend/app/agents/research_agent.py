@@ -33,6 +33,7 @@ class ResearchAgent:
             region=req.region,
             industry=req.business_type or req.industry or "Commercial Business",
             service=req.service,
+            target_query=req.target_query,
             limit=req.lead_count
         )
 
@@ -49,7 +50,7 @@ class ResearchAgent:
             country=req.country,
             city=req.city,
             region=req.region,
-            industry=req.industry or req.business_type or "Commercial Business",
+            industry=req.target_query or req.industry or req.business_type or "Commercial Business",
             service=req.service,
             limit=req.lead_count
         )
@@ -61,32 +62,43 @@ class ResearchAgent:
             industry=req.industry or req.business_type,
             exclusions=req.exclusions
         )
-        raw_leads.extend(dir_leads)
+        from backend.app.tools.business_validator import BusinessValidator
+
+        for dl in dir_leads:
+            cleaned = BusinessValidator.validate_and_clean_lead(dl)
+            if cleaned:
+                raw_leads.append(cleaned)
 
         # Execute live Google Places, Apollo, and Tavily tasks concurrently
         try:
             live_results = await asyncio.gather(places_task, apollo_task, tavily_task, return_exceptions=True)
             
-            # Process Google Places leads
+            # Process Google Places leads (highest authenticity verified physical businesses)
             if isinstance(live_results[0], list):
                 for p_lead in live_results[0]:
-                    name_low = p_lead["business_name"].lower()
-                    if not any(ex.lower() in name_low for ex in req.exclusions):
-                        raw_leads.append(p_lead)
+                    cleaned = BusinessValidator.validate_and_clean_lead(p_lead)
+                    if cleaned:
+                        name_low = cleaned["business_name"].lower()
+                        if not any(ex.lower() in name_low for ex in req.exclusions):
+                            raw_leads.append(cleaned)
 
             # Process Apollo leads
             if isinstance(live_results[1], list):
                 for a_lead in live_results[1]:
-                    name_low = a_lead["business_name"].lower()
-                    if not any(ex.lower() in name_low for ex in req.exclusions):
-                        raw_leads.append(a_lead)
+                    cleaned = BusinessValidator.validate_and_clean_lead(a_lead)
+                    if cleaned:
+                        name_low = cleaned["business_name"].lower()
+                        if not any(ex.lower() in name_low for ex in req.exclusions):
+                            raw_leads.append(cleaned)
 
             # Process Tavily leads
             if isinstance(live_results[2], list):
                 for t_lead in live_results[2]:
-                    name_low = t_lead["business_name"].lower()
-                    if not any(ex.lower() in name_low for ex in req.exclusions):
-                        raw_leads.append(t_lead)
+                    cleaned = BusinessValidator.validate_and_clean_lead(t_lead)
+                    if cleaned:
+                        name_low = cleaned["business_name"].lower()
+                        if not any(ex.lower() in name_low for ex in req.exclusions):
+                            raw_leads.append(cleaned)
 
         except Exception as e:
             print(f"[ResearchAgent] Live tool aggregation note: {e}")

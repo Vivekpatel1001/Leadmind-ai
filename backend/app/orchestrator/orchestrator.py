@@ -145,9 +145,16 @@ class Orchestrator:
         low_count = 0
         processed_leads = []
 
+        from backend.app.tools.business_validator import BusinessValidator
+
         for lead in final_prospects:
             # Strict country check
             if requirements.country and not QualificationAgent.is_strict_country_match(requirements.country, lead):
+                continue
+
+            # Business authenticity & validity check (filters out listicles, aggregators, blog headlines)
+            lead = BusinessValidator.validate_and_clean_lead(lead)
+            if not lead:
                 continue
 
             # Qualify

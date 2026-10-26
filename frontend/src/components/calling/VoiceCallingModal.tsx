@@ -23,7 +23,8 @@ import {
   ChevronUp,
   Smartphone,
   Send,
-  MessageSquare
+  MessageSquare,
+  AlertTriangle
 } from 'lucide-react';
 import { Lead, CallSessionResponse, CallDialogueTurn } from '../../types';
 import { api } from '../../services/api';
@@ -72,11 +73,14 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
   const [targetPhone, setTargetPhone] = useState<string>(initialPhone);
   const [callingMode, setCallingMode] = useState<CallingMode>('live_interactive');
 
-  // Twilio Gateway credentials
+  // Twilio Gateway credentials - Loaded securely from backend environment
   const [showTwilioConfig, setShowTwilioConfig] = useState<boolean>(false);
   const [twilioSid, setTwilioSid] = useState<string>('');
   const [twilioToken, setTwilioToken] = useState<string>('');
-  const [twilioFromPhone, setTwilioFromPhone] = useState<string>('+18005550199');
+  const [twilioFromPhone, setTwilioFromPhone] = useState<string>('');
+  const [twilioWebhookUrl, setTwilioWebhookUrl] = useState<string>('');
+  const [twilioStatusInfo, setTwilioStatusInfo] = useState<any>(null);
+  const [callError, setCallError] = useState<string | null>(null);
 
   const [step, setStep] = useState<CallStep>('setup');
   const [callSession, setCallSession] = useState<CallSessionResponse | null>(null);
@@ -91,17 +95,20 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
   const [userSpeechInput, setUserSpeechInput] = useState<string>('');
   const [isAiThinking, setIsAiThinking] = useState<boolean>(false);
   const [speechRecognitionSupported, setSpeechRecognitionSupported] = useState<boolean>(true);
+  const [interimTranscript, setInterimTranscript] = useState<string>('');
+  const speechSilenceTimerRef = useRef<any>(null);
 
   // User Business Profile configuration
-  const [senderCompany, setSenderCompany] = useState('Apex Growth Studio');
-  const [senderName, setSenderName] = useState('Vikram Patel');
-  const [senderPhone, setSenderPhone] = useState('+44 20 7946 0999');
+  const [senderCompany, setSenderCompany] = useState('LeadMind AI');
+  const [senderName, setSenderName] = useState('Vivek Patel');
+  const [senderPhone, setSenderPhone] = useState('+91 9408082933');
   const [serviceOffered, setServiceOffered] = useState('Graphic Design & Commercial Brand Revamp');
   const [valueProposition, setValueProposition] = useState(
     'Delivering bespoke brand redesigns and commercial assets that increase customer acquisition by 40%.'
   );
 
   const timerRef = useRef<any>(null);
+  const livePollTimerRef = useRef<any>(null);
   const ringAudioRef = useRef<AudioContext | null>(null);
   const recognitionRef = useRef<any>(null);
   const transcriptBottomRef = useRef<HTMLDivElement>(null);
@@ -123,6 +130,59 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
     }
   }, [lead]);
 
+  // Fetch Twilio account and phone number status from backend
+  useEffect(() => {
+    if (isOpen) {
+      setCallError(null);
+      api.getTwilioStatus().then(status => {
+        if (status) {
+          setTwilioStatusInfo(status);
+          if (status.from_phone) {
+            setTwilioFromPhone(status.from_phone);
+          } else if (status.incoming_numbers && status.incoming_numbers.length > 0) {
+            setTwilioFromPhone(status.incoming_numbers[0]);
+          }
+          if (status.webhook_url) {
+            setTwilioWebhookUrl(status.webhook_url);
+          }
+        }
+      }).catch(() => {});
+    }
+  }, [isOpen]);
+
+  // Real GSM Cellular Live Audio & Speech Transcript Polling
+  useEffect(() => {
+    if (callingMode === 'real_gsm' && (step === 'connected' || step === 'forwarded')) {
+      const pollLiveTurns = async () => {
+        try {
+          const callId = callSession?.twilio_call_sid || callSession?.call_id || targetPhone;
+          const liveData = await api.getLiveCallTranscript(callId);
+          if (liveData && Array.isArray(liveData.turns) && liveData.turns.length > 0) {
+            setTurns(liveData.turns);
+            if (liveData.is_forwarded && currentStepRef.current !== 'forwarded') {
+              setStep('forwarded');
+              playBridgeChime();
+            }
+          }
+          if (liveData?.status === 'completed' && currentStepRef.current === 'connected') {
+            handleEndCall();
+          }
+        } catch (e) {
+          // Poll note
+        }
+      };
+
+      pollLiveTurns();
+      livePollTimerRef.current = setInterval(pollLiveTurns, 1500);
+
+      return () => {
+        if (livePollTimerRef.current) clearInterval(livePollTimerRef.current);
+      };
+    } else {
+      if (livePollTimerRef.current) clearInterval(livePollTimerRef.current);
+    }
+  }, [callingMode, step, callSession, targetPhone]);
+
   // Auto-scroll transcript
   useEffect(() => {
     transcriptBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -137,6 +197,7 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
         window.speechSynthesis.cancel();
       }
       if (timerRef.current) clearInterval(timerRef.current);
+      if (livePollTimerRef.current) clearInterval(livePollTimerRef.current);
     };
   }, []);
 
@@ -192,6 +253,34 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
     }
   };
 
+  const playBridgeChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+      
+      const playTone = (freq: number, start: number, dur: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.14, start);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + dur);
+      };
+
+      playTone(523.25, now + 0.05, 0.35); // C5
+      playTone(659.25, now + 0.25, 0.35); // E5
+      playTone(783.99, now + 0.45, 0.75); // G5 harmonic bridge chime
+    } catch (e) {
+      // Ignored
+    }
+  };
+
   // Natural Speech Synthesis
   const speakText = (text: string, speaker: 'ai' | 'prospect' | 'system'): Promise<void> => {
     return new Promise((resolve) => {
@@ -238,7 +327,7 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
     });
   };
 
-  // Start Live Microphone Speech Recognition
+  // Start Live Microphone Speech Recognition (Continuous with Generous Response Time)
   const startSpeechRecognition = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -247,29 +336,63 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
     }
 
     try {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.abort(); } catch (e) {}
+      }
+
       const recognition = new SpeechRecognition();
       recognitionRef.current = recognition;
-      recognition.continuous = false;
-      recognition.interimResults = false;
+      recognition.continuous = true;
+      recognition.interimResults = true;
       recognition.lang = 'en-US';
 
       recognition.onstart = () => {
         setIsListeningToUser(true);
+        setInterimTranscript('');
       };
 
       recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript) {
-          handleUserSpeechSubmit(transcript);
+        let fullTranscript = '';
+        for (let i = 0; i < event.results.length; i++) {
+          fullTranscript += event.results[i][0].transcript + ' ';
+        }
+        fullTranscript = fullTranscript.trim();
+
+        if (fullTranscript) {
+          setInterimTranscript(fullTranscript);
+          setUserSpeechInput(fullTranscript);
+
+          // Debounce auto-submit: 1.6 seconds of silence after user finishes speaking
+          if (speechSilenceTimerRef.current) {
+            clearTimeout(speechSilenceTimerRef.current);
+          }
+
+          speechSilenceTimerRef.current = setTimeout(() => {
+            if (fullTranscript.trim()) {
+              handleUserSpeechSubmit(fullTranscript.trim());
+            }
+          }, 1600);
         }
       };
 
       recognition.onerror = (event: any) => {
-        setIsListeningToUser(false);
+        if (event.error !== 'no-speech') {
+          console.warn('Speech recognition warning:', event.error);
+        }
       };
 
       recognition.onend = () => {
-        setIsListeningToUser(false);
+        // Auto-reconnect recognition if call is active and AI is not speaking
+        if (currentStepRef.current === 'connected' && !isPlayingTurnRef.current) {
+          try {
+            recognition.start();
+            setIsListeningToUser(true);
+          } catch (e) {
+            setIsListeningToUser(false);
+          }
+        } else {
+          setIsListeningToUser(false);
+        }
       };
 
       recognition.start();
@@ -280,22 +403,27 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
   };
 
   const stopSpeechRecognition = () => {
+    if (speechSilenceTimerRef.current) {
+      clearTimeout(speechSilenceTimerRef.current);
+    }
     try {
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        recognitionRef.current.abort();
       }
-    } catch (e) {
-      // Ignored
-    }
+    } catch (e) {}
     setIsListeningToUser(false);
+    setInterimTranscript('');
   };
 
   // User speaks or sends a response to the AI in real time
   const handleUserSpeechSubmit = async (spokenText?: string) => {
-    const textToSend = spokenText || userSpeechInput;
-    if (!textToSend.trim() || isAiThinking) return;
+    const textToSend = (spokenText || userSpeechInput || interimTranscript || '').trim();
+    if (!textToSend || isAiThinking) return;
 
     setUserSpeechInput('');
+    setInterimTranscript('');
+    if (speechSilenceTimerRef.current) clearTimeout(speechSilenceTimerRef.current);
+    isPlayingTurnRef.current = true;
     stopSpeechRecognition();
 
     const newProspectTurn: CallDialogueTurn = {
@@ -338,12 +466,14 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
 
       // AI speaks out loud to the user!
       await speakText(response.ai_response_text, 'ai');
+      isPlayingTurnRef.current = false;
 
       if (response.is_forwarded || response.is_deal_closed) {
         setStep('forwarded');
+        playBridgeChime();
         const transferTurn: CallDialogueTurn = {
           speaker: 'system',
-          text: `🔥 Warm transfer activated. Call bridged live to ${senderName} on ${senderPhone}.`,
+          text: `🔥 Automated Transfer: Calling owner ${senderName} (${senderPhone}), briefing him with ${targetCompany} details, and bridging line. Zero clicks needed!`,
           sentiment: 'forwarded',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         };
@@ -397,7 +527,8 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
         make_real_call: callingMode === 'real_gsm',
         twilio_account_sid: twilioSid || undefined,
         twilio_auth_token: twilioToken || undefined,
-        twilio_from_phone: twilioFromPhone || undefined
+        twilio_from_phone: twilioFromPhone || undefined,
+        twilio_webhook_url: twilioWebhookUrl || undefined
       });
 
       await new Promise(res => setTimeout(res, 5200));
@@ -408,6 +539,12 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
 
       if (session.status === 'not_answered') {
         setStep('not_answered');
+        return;
+      }
+
+      if (callingMode === 'real_gsm' && !session.real_call_dispatched) {
+        setStep('setup');
+        setCallError(session.telecom_carrier_notice || 'Twilio could not place the cellular call. Please verify your Twilio phone number and caller IDs.');
         return;
       }
 
@@ -428,8 +565,8 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
         };
         const initialAiGreeting: CallDialogueTurn = {
           speaker: 'ai',
-          text: `Hello, good day! Am I speaking with ${targetContact} at ${targetCompany}?`,
-          sentiment: 'neutral',
+          text: `Hi ${targetContact || 'there'}! Hello, how are you doing today?`,
+          sentiment: 'positive',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         };
 
@@ -443,8 +580,13 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
           startSpeechRecognition();
         }, 400);
 
+      } else if (callingMode === 'real_gsm') {
+        // Real Cellular GSM Call mode via Twilio!
+        // The real telephone call is placed to the physical mobile device.
+        // Do NOT speak fake prospect turns through laptop speakers.
+        setTurns(session.dialogue_turns);
       } else {
-        // Auto Simulation stream
+        // Auto Simulation stream (demo mode)
         setTurns(session.dialogue_turns);
         for (let i = 0; i < session.dialogue_turns.length; i++) {
           if (currentStepRef.current === 'summary') break;
@@ -475,10 +617,28 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
     }
     setStep('summary');
     if (lead && onLeadUpdated) {
+      const newCallLog = {
+        call_id: callSession?.call_id || ("call_" + Date.now()),
+        timestamp: new Date().toISOString(),
+        duration_seconds: callDuration || 45,
+        phone_dialed: targetPhone,
+        prospect_name: targetContact,
+        company_name: targetCompany,
+        sentiment_score: callSession?.sentiment_score || (step === 'forwarded' ? 98 : 92),
+        forward_status: step === 'forwarded' ? 'forwarded_to_user' : 'completed',
+        status: step === 'forwarded' ? 'forwarded_live' : 'completed',
+        forward_target: senderPhone,
+        real_call_dispatched: callingMode === 'real_gsm',
+        twilio_call_sid: callSession?.twilio_call_sid,
+        summary: ("Outbound sales call to " + targetContact + " at " + targetCompany + ". Discussion completed with warm transfer to " + senderName + " (" + senderPhone + ")."),
+        transcript: turns
+      };
+      const existingLogs = Array.isArray(lead.call_logs) ? lead.call_logs : [];
       onLeadUpdated({
         ...lead,
         crm_stage: 'Discussion',
-        status: 'contacted'
+        status: 'contacted',
+        call_logs: [...existingLogs, newCallLog]
       });
     }
   };
@@ -570,6 +730,26 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
           {/* PHASE 1: SETUP BUSINESS & CALLING ENGINE */}
           {step === 'setup' && (
             <div className="space-y-5 animate-fadeIn">
+
+              {/* Cellular Error Banner */}
+              {callError && (
+                <div className="p-4 rounded-2xl bg-[#FF6B5F]/10 border border-[#FF6B5F]/30 flex items-start gap-3 text-left">
+                  <AlertTriangle className="w-5 h-5 text-[#FF6B5F] shrink-0 mt-0.5" />
+                  <div className="space-y-1.5 flex-1">
+                    <h5 className="text-xs font-bold text-[#FF6B5F]">Twilio Cellular Dispatch Notice</h5>
+                    <p className="text-xs text-[#171717] leading-relaxed">{callError}</p>
+                    <div className="p-2.5 rounded-xl bg-white border border-[#FF6B5F]/20 text-[11px] text-[#6F6D68] space-y-1">
+                      <span className="font-bold text-[#171717]">💡 Recommended Instant Fix:</span>
+                      <p>
+                        Switch to <strong>"Talk to AI (Live Mic)"</strong> mode below to test the full live AI voice pitch right through your computer microphone — zero Twilio setup needed!
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={() => setCallError(null)} className="text-[#6F6D68] hover:text-[#171717] cursor-pointer">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
               
               {/* Calling Mode Selector */}
               <div className="p-4 rounded-2xl bg-[#F7F6F2] border border-[#DDDCD7] space-y-3">
@@ -632,19 +812,28 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
                     onClick={() => setCallingMode('real_gsm')}
                     className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
                       callingMode === 'real_gsm'
-                        ? 'border-[#7657FF] bg-white shadow-sm'
+                        ? 'border-[#7657FF] bg-white shadow-sm ring-1 ring-[#7657FF]/20'
                         : 'border-[#DDDCD7] bg-white/60 hover:border-[#7657FF]/50'
                     }`}
                   >
                     <div>
-                      <div className="mb-2">
-                        <div className={`p-2 rounded-lg w-fit ${callingMode === 'real_gsm' ? 'bg-[#7657FF] text-white' : 'bg-[#EFEEE9] text-[#6F6D68]'}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className={`p-2 rounded-lg ${callingMode === 'real_gsm' ? 'bg-[#7657FF] text-white' : 'bg-[#EFEEE9] text-[#6F6D68]'}`}>
                           <Smartphone className="w-4 h-4" />
                         </div>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${
+                          twilioStatusInfo?.from_phone 
+                            ? 'bg-[#10B981]/15 text-[#059669]' 
+                            : 'bg-[#FFB020]/15 text-[#B45309]'
+                        }`}>
+                          {twilioStatusInfo?.from_phone ? 'Twilio Ready' : 'Number Needed'}
+                        </span>
                       </div>
                       <div className="text-xs font-bold text-[#171717]">Real Cellular Call</div>
                       <div className="text-[11px] text-[#6F6D68] mt-1 leading-snug">
-                        Dials physical phone via Twilio Telecom Gateway. (Requires Twilio Account SID).
+                        {twilioFromPhone 
+                          ? `Dials physical phone via Twilio line ${twilioFromPhone}. Your phone rings in real life!`
+                          : 'Dials physical phone via Twilio Voice API. Requires an active Twilio number.'}
                       </div>
                     </div>
                   </div>
@@ -653,15 +842,44 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
                 {/* Twilio Credentials Accordion */}
                 {callingMode === 'real_gsm' && (
                   <div className="pt-2 border-t border-[#DDDCD7]/60 space-y-3">
-                    <button
-                      type="button"
-                      onClick={() => setShowTwilioConfig(!showTwilioConfig)}
-                      className="text-xs font-bold text-[#7657FF] hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      <KeyRound className="w-3.5 h-3.5" />
-                      <span>{showTwilioConfig ? 'Hide Twilio Keys' : 'Enter Twilio API Keys (For Real Cellular Ringing)'}</span>
-                      {showTwilioConfig ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    </button>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowTwilioConfig(!showTwilioConfig)}
+                        className="text-xs font-bold text-[#7657FF] hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <KeyRound className="w-3.5 h-3.5" />
+                        <span>{showTwilioConfig ? 'Hide Twilio Settings' : 'Configure Twilio Credentials & Webhook'}</span>
+                        {showTwilioConfig ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      </button>
+                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                        twilioStatusInfo?.from_phone 
+                          ? 'text-[#059669] bg-[#10B981]/10' 
+                          : 'text-[#B45309] bg-[#FFB020]/10'
+                      }`}>
+                        {twilioStatusInfo?.from_phone 
+                          ? `✓ Active Line: ${twilioStatusInfo.from_phone}` 
+                          : '⚠️ No Twilio Phone Number Found'}
+                      </span>
+                    </div>
+
+                    {!twilioStatusInfo?.from_phone && (
+                      <div className="p-3 rounded-xl bg-[#FFB020]/10 border border-[#FFB020]/30 text-xs text-[#92400E] space-y-1.5">
+                        <div className="font-bold flex items-center gap-1.5">
+                          <AlertTriangle className="w-4 h-4 text-[#B45309]" />
+                          <span>Twilio Phone Number Required</span>
+                        </div>
+                        <p className="text-[11px] leading-relaxed">
+                          Your Twilio account (<strong>{twilioStatusInfo?.account_name || 'Connected'}</strong>) does not have any active phone numbers yet.
+                          Log in to your <a href="https://console.twilio.com" target="_blank" rel="noreferrer" className="underline font-bold">Twilio Console</a> and click <strong>"Get a Trial Number"</strong> (free), then paste it below or into <code>TWILIO_PHONE_NUMBER</code> in <code>.env</code>.
+                        </p>
+                        {twilioStatusInfo?.account_type === 'Trial' && (
+                          <p className="text-[10px] text-[#B45309]">
+                            * Notice: Trial accounts can only place calls to numbers verified under Twilio &gt; Phone Numbers &gt; Verified Caller IDs.
+                          </p>
+                        )}
+                      </div>
+                    )}
 
                     {showTwilioConfig && (
                       <div className="p-3.5 rounded-xl bg-white border border-[#DDDCD7] grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -689,9 +907,21 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
                           <label className="text-[10px] font-bold text-[#6F6D68] uppercase block mb-1">Twilio From Number</label>
                           <input
                             type="text"
-                            placeholder="+18005550199"
+                            placeholder="e.g. +18005550199"
                             value={twilioFromPhone}
                             onChange={(e) => setTwilioFromPhone(e.target.value)}
+                            className="w-full bg-[#F7F6F2] border border-[#DDDCD7] rounded-lg px-2.5 py-1.5 text-xs text-[#171717] focus:outline-none focus:border-[#7657FF]"
+                          />
+                        </div>
+                        <div className="sm:col-span-3 pt-1">
+                          <label className="text-[10px] font-bold text-[#6F6D68] uppercase block mb-1">
+                            Twilio Webhook URL (Required for 2-way cellular phone speech via ngrok/localtunnel)
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. https://your-domain.ngrok-free.app"
+                            value={twilioWebhookUrl}
+                            onChange={(e) => setTwilioWebhookUrl(e.target.value)}
                             className="w-full bg-[#F7F6F2] border border-[#DDDCD7] rounded-lg px-2.5 py-1.5 text-xs text-[#171717] focus:outline-none focus:border-[#7657FF]"
                           />
                         </div>
@@ -733,20 +963,30 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
                       type="text"
                       value={targetContact}
                       onChange={(e) => setTargetContact(e.target.value)}
-                      placeholder="e.g. Vikram Patel / Store Owner"
+                      placeholder="e.g. Vivek Patel / Store Owner"
                       className="w-full bg-white border border-[#DDDCD7] rounded-xl px-3 py-2 text-xs text-[#171717] focus:outline-none focus:border-[#3157FF]"
                     />
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-bold text-[#6F6D68] uppercase tracking-wider block mb-1">
-                      Phone Number to Dial
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] font-bold text-[#6F6D68] uppercase tracking-wider block">
+                        Phone Number to Dial
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setTargetPhone('+919408082933')}
+                        className="text-[9px] px-1.5 py-0.5 rounded bg-[#3157FF]/10 text-[#3157FF] hover:bg-[#3157FF]/20 font-bold cursor-pointer"
+                        title="Set to your verified mobile number"
+                      >
+                        📱 Set My Phone
+                      </button>
+                    </div>
                     <input
                       type="text"
                       value={targetPhone}
                       onChange={(e) => setTargetPhone(e.target.value)}
-                      placeholder="+91 9408082933"
+                      placeholder="+919408082933"
                       className="w-full bg-white border border-[#DDDCD7] rounded-xl px-3 py-2 text-xs text-[#3157FF] font-mono font-bold focus:outline-none focus:border-[#3157FF]"
                     />
                   </div>
@@ -916,15 +1156,23 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
                   <div>
                     <div className="text-xs font-bold text-[#171717] flex items-center gap-2">
                       <span>
-                        {activeSpeaker === 'ai' && `🤖 AI SDR (${senderName}'s Assistant)`}
-                        {activeSpeaker === 'prospect' && `👤 ${targetContact} (You / Store Owner)`}
-                        {(!activeSpeaker || activeSpeaker === 'system') && 'Two-Way Audio Line Connected'}
+                        {callingMode === 'real_gsm'
+                          ? `📱 Real Cellular Call Active`
+                          : activeSpeaker === 'ai'
+                          ? `🤖 AI SDR (${senderName}'s Assistant)`
+                          : activeSpeaker === 'prospect'
+                          ? `👤 ${targetContact} (You / Store Owner)`
+                          : 'Two-Way Audio Line Connected'}
                       </span>
                     </div>
                     <div className="text-[11px] text-[#6F6D68]">
-                      {activeSpeaker === 'ai' && `AI speaking pitch to ${targetCompany}...`}
-                      {activeSpeaker === 'prospect' && `You speaking into microphone...`}
-                      {(!activeSpeaker || activeSpeaker === 'system') && (callingMode === 'live_interactive' ? '🎙️ Speak into your mic or type below to talk with the AI!' : 'Live audio stream')}
+                      {callingMode === 'real_gsm'
+                        ? `Live call dispatched to ${targetPhone} from ${twilioFromPhone}. Answer your mobile phone!`
+                        : activeSpeaker === 'ai'
+                        ? `AI speaking pitch to ${targetCompany}...`
+                        : activeSpeaker === 'prospect'
+                        ? `You speaking into microphone...`
+                        : (callingMode === 'live_interactive' ? '🎙️ Speak into your mic or type below to talk with the AI!' : 'Live audio stream')}
                     </div>
                   </div>
                 </div>
@@ -950,6 +1198,28 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
                   ))}
                 </div>
               </div>
+
+              {/* Cellular Call Banner for Real Phone Call */}
+              {callingMode === 'real_gsm' && (
+                <div className="p-3.5 rounded-2xl bg-[#10B981]/10 border border-[#10B981]/30 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#10B981] animate-ping" />
+                    <div>
+                      <div className="text-xs font-bold text-[#065F46] flex items-center gap-2">
+                        <span>Cellular Call Active on Your Mobile Device</span>
+                        {callSession?.twilio_call_sid && (
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white text-[#047857] border border-[#10B981]/30 font-semibold">
+                            SID: {callSession.twilio_call_sid}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-[#047857]">
+                        Dialing <span className="font-mono font-bold">{targetPhone}</span> from Twilio number <span className="font-mono font-bold">{twilioFromPhone}</span>. Pick up your phone to hear the AI pitch!
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Live Transcript Container */}
               <div className="border border-[#DDDCD7] rounded-2xl bg-[#F7F6F2] p-4 max-h-64 overflow-y-auto space-y-3 font-sans">
@@ -995,51 +1265,141 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
                 <div ref={transcriptBottomRef} />
               </div>
 
-              {/* 🎙️ LIVE 2-WAY INTERACTIVE MICROPHONE / INPUT BAR */}
+              {/* 🎙️ LIVE 2-WAY INTERACTIVE MICROPHONE / INPUT BAR WITH 4 GUIDED STAGES */}
               {callingMode === 'live_interactive' && step === 'connected' && (
-                <div className="p-3.5 rounded-2xl bg-white border-2 border-[#3157FF] shadow-sm space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#171717] flex items-center gap-1.5">
-                      <Mic className={`w-3.5 h-3.5 ${isListeningToUser ? 'text-[#FF6B5F] animate-pulse' : 'text-[#3157FF]'}`} />
-                      <span>{isListeningToUser ? 'Listening to your voice... Speak now!' : 'Speak into Microphone or Type Answer:'}</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (isListeningToUser) {
-                          stopSpeechRecognition();
-                        } else {
-                          startSpeechRecognition();
-                        }
-                      }}
-                      className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                        isListeningToUser
-                          ? 'bg-[#FF6B5F] text-white shadow-sm animate-pulse'
-                          : 'bg-[#3157FF]/10 text-[#3157FF] hover:bg-[#3157FF] hover:text-white'
-                      }`}
-                    >
-                      {isListeningToUser ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
-                      <span>{isListeningToUser ? 'Stop Mic' : 'Start Mic'}</span>
-                    </button>
+                <div className="p-4 rounded-3xl bg-white border-2 border-[#3157FF] shadow-lg space-y-3">
+                  
+                  {/* Guided 4-Stage Sales Progress Header */}
+                  <div className="grid grid-cols-4 gap-2 text-center text-[10px] font-bold">
+                    <div className="p-2 rounded-xl bg-[#3157FF]/10 text-[#3157FF] border border-[#3157FF]/25 shadow-xs">
+                      1. Greet & Check-in
+                    </div>
+                    <div className="p-2 rounded-xl bg-[#7657FF]/10 text-[#7657FF] border border-[#7657FF]/25 shadow-xs">
+                      2. Client's Business
+                    </div>
+                    <div className="p-2 rounded-xl bg-[#F59E0B]/10 text-[#B45309] border border-[#F59E0B]/25 shadow-xs">
+                      3. Services & Pitch
+                    </div>
+                    <div className="p-2 rounded-xl bg-[#10B981]/15 text-[#047857] border border-[#10B981]/30 shadow-xs">
+                      4. Transfer to Owner (+919408082933)
+                    </div>
                   </div>
 
-                  {/* Quick Speech Chips */}
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {[
-                      "Yes, who is this?",
-                      "We already have an agency",
-                      "How much does it cost?",
-                      "Sounds interesting, let's talk!"
-                    ].map((phrase, idx) => (
+                  {/* Live Microphone Status Banner */}
+                  <div className="flex items-center justify-between p-3 rounded-2xl bg-[#F7F6F2] border border-[#DDDCD7]">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-3.5 h-3.5 rounded-full ${isListeningToUser ? 'bg-[#FF6B5F] animate-ping' : 'bg-[#DDDCD7]'}`} />
+                      <div>
+                        <span className="text-xs font-bold text-[#171717] block">
+                          {isListeningToUser ? '🎙️ Microphone is LIVE & Listening (Take your time, speak naturally!)' : 'Microphone Paused'}
+                        </span>
+                        <span className="text-[11px] text-[#6F6D68]">
+                          {interimTranscript ? `Hearing you say: "${interimTranscript}"` : 'AI is listening for your response or question...'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {interimTranscript && (
+                        <button
+                          type="button"
+                          onClick={() => handleUserSpeechSubmit(interimTranscript)}
+                          className="px-3 py-1.5 rounded-xl bg-[#10B981] hover:bg-[#059669] text-white text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Send Now</span>
+                        </button>
+                      )}
                       <button
-                        key={idx}
                         type="button"
-                        onClick={() => handleUserSpeechSubmit(phrase)}
-                        className="px-2.5 py-1 rounded-md bg-[#F7F6F2] hover:bg-[#3157FF] text-[#171717] hover:text-white text-[11px] font-medium border border-[#DDDCD7] transition-all cursor-pointer"
+                        onClick={() => {
+                          if (isListeningToUser) {
+                            stopSpeechRecognition();
+                          } else {
+                            startSpeechRecognition();
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                          isListeningToUser
+                            ? 'bg-[#FF6B5F] text-white shadow-sm'
+                            : 'bg-[#3157FF] text-white hover:bg-[#2745d8]'
+                        }`}
                       >
-                        "{phrase}"
+                        {isListeningToUser ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                        <span>{isListeningToUser ? 'Pause Mic' : 'Resume Mic'}</span>
                       </button>
-                    ))}
+                    </div>
+                  </div>
+
+                  {/* 4 Guided Primary Stage Action Buttons */}
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] text-[#6F6D68] font-bold uppercase tracking-wider flex items-center justify-between">
+                      <span>4-Stage Guided Sales Flow (Click or Speak Aloud):</span>
+                      <span className="text-[#3157FF]">Interactive AI SDR</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleUserSpeechSubmit("Hi! I'm good, who is this?")}
+                        className="p-2.5 rounded-xl bg-[#3157FF]/5 hover:bg-[#3157FF] text-[#171717] hover:text-white border border-[#3157FF]/20 text-left transition-all cursor-pointer shadow-xs group"
+                      >
+                        <div className="text-[10px] font-bold text-[#3157FF] group-hover:text-white uppercase">Stage 1 · Greet & Inquire</div>
+                        <div className="text-xs font-semibold mt-0.5">"Hi! I'm good, who is this?"</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUserSpeechSubmit("Tell me about my business and why you called.")}
+                        className="p-2.5 rounded-xl bg-[#7657FF]/5 hover:bg-[#7657FF] text-[#171717] hover:text-white border border-[#7657FF]/20 text-left transition-all cursor-pointer shadow-xs group"
+                      >
+                        <div className="text-[10px] font-bold text-[#7657FF] group-hover:text-white uppercase">Stage 2 · Discuss My Business</div>
+                        <div className="text-xs font-semibold mt-0.5">"Tell me about my business and why you called."</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUserSpeechSubmit("What services do you offer? How can we collaborate?")}
+                        className="p-2.5 rounded-xl bg-[#F59E0B]/5 hover:bg-[#F59E0B] text-[#171717] hover:text-white border border-[#F59E0B]/20 text-left transition-all cursor-pointer shadow-xs group"
+                      >
+                        <div className="text-[10px] font-bold text-[#B45309] group-hover:text-white uppercase">Stage 3 · Services & Collaboration</div>
+                        <div className="text-xs font-semibold mt-0.5">"What services do you offer? How can we collaborate?"</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUserSpeechSubmit("I want to talk with the owner of the store, please connect me with Vivek Patel (+919408082933)!")}
+                        className="p-2.5 rounded-xl bg-[#10B981]/10 hover:bg-[#10B981] text-[#065F46] hover:text-white border-2 border-[#10B981]/40 text-left transition-all cursor-pointer shadow-sm group animate-pulse"
+                      >
+                        <div className="text-[10px] font-extrabold text-[#047857] group-hover:text-white uppercase">Stage 4 · Connect to Owner & Close Deal</div>
+                        <div className="text-xs font-bold mt-0.5">"I want to talk with the owner of the store (+919408082933)!"</div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Secondary Q&A Chips */}
+                  <div className="space-y-1 pt-1">
+                    <div className="text-[10px] text-[#6F6D68] font-bold uppercase tracking-wider">
+                      Or Ask Any Question (Pricing, Process, AI):
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        "How much does your service cost?",
+                        "Are you an AI or a real human?",
+                        "Can you send an email with details?",
+                        "We already have an in-house team",
+                        "I'm busy right now, call me later"
+                      ].map((phrase, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => handleUserSpeechSubmit(phrase)}
+                          className="px-2.5 py-1 rounded-lg bg-[#F7F6F2] hover:bg-[#3157FF] text-[#171717] hover:text-white text-[11px] font-medium border border-[#DDDCD7] transition-all cursor-pointer shadow-xs"
+                        >
+                          "{phrase}"
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Text Input Fallback */}
@@ -1054,13 +1414,13 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
                       type="text"
                       value={userSpeechInput}
                       onChange={(e) => setUserSpeechInput(e.target.value)}
-                      placeholder="Or type what you want to say to the AI..."
+                      placeholder="Type your spoken words or ask any question here..."
                       className="flex-1 bg-[#F7F6F2] border border-[#DDDCD7] rounded-xl px-3 py-2 text-xs text-[#171717] focus:outline-none focus:border-[#3157FF]"
                     />
                     <button
                       type="submit"
                       disabled={!userSpeechInput.trim() || isAiThinking}
-                      className="p-2 rounded-xl bg-[#3157FF] hover:bg-[#2745d8] disabled:opacity-40 text-white transition-all cursor-pointer"
+                      className="p-2.5 rounded-xl bg-[#3157FF] hover:bg-[#2745d8] disabled:opacity-40 text-white transition-all cursor-pointer shadow-sm"
                     >
                       <Send className="w-4 h-4" />
                     </button>
@@ -1068,34 +1428,55 @@ export function VoiceCallingModal({ lead, isOpen, onClose, onLeadUpdated }: Voic
                 </div>
               )}
 
-              {/* WARM FORWARDING ALERT BANNER */}
+              {/* AUTOMATED WHISPER & TRANSFER STATUS BANNER (ZERO CLICKS REQUIRED) */}
               {step === 'forwarded' && (
-                <div className="p-5 rounded-2xl bg-[#3157FF]/10 border-2 border-[#3157FF] shadow-sm animate-pulse space-y-3">
+                <div className="p-5 rounded-2xl bg-[#10B981]/10 border-2 border-[#10B981] shadow-md space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className="p-1.5 rounded-full bg-[#3157FF] text-white">
+                      <div className="p-1.5 rounded-full bg-[#10B981] text-white animate-pulse">
                         <PhoneForwarded className="w-4 h-4" />
                       </div>
-                      <span className="font-bold text-sm text-[#171717]">
-                        🔥 PROSPECT RECEPTIVE — CALL BRIDGED LIVE TO YOU!
+                      <span className="font-bold text-sm text-[#065F46]">
+                        ⚡ 100% AUTOMATED TRANSFER IN PROGRESS — ZERO CLICKS REQUIRED
                       </span>
                     </div>
-                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#3157FF] text-white font-bold">
-                      Bridge Active
+                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#10B981] text-white font-bold animate-pulse">
+                      Live Bridge
                     </span>
                   </div>
 
-                  <p className="text-xs text-[#171717]">
-                    Prospect <strong className="font-bold">{targetContact}</strong> agreed to discuss <strong className="text-[#3157FF] font-semibold">{serviceOffered}</strong>. The line has been bridged to your forwarding phone: <strong className="underline font-mono">{senderPhone}</strong>.
-                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                    <div className="p-2.5 rounded-xl bg-white border border-[#10B981]/30">
+                      <div className="text-[10px] font-bold text-[#047857] uppercase tracking-wide">Step 1 · Client On Hold</div>
+                      <div className="text-xs text-[#171717] mt-1 font-medium">
+                        Client told: <em>"Please hold on for just a moment while I brief our owner, Vivek Patel, with your details..."</em>
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white border border-[#10B981]/30">
+                      <div className="text-[10px] font-bold text-[#047857] uppercase tracking-wide">Step 2 · Owner Whisper</div>
+                      <div className="text-xs text-[#171717] mt-1 font-medium">
+                        Dialing <strong>{senderPhone}</strong> and whispering business details into Vivek's ear via Twilio Call Screening.
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white border border-[#10B981]/30">
+                      <div className="text-[10px] font-bold text-[#047857] uppercase tracking-wide">Step 3 · Auto Bridge</div>
+                      <div className="text-xs text-[#171717] mt-1 font-medium">
+                        Lines automatically join as soon as briefing finishes. Vivek closes deal directly with {targetContact}!
+                      </div>
+                    </div>
+                  </div>
 
-                  <div className="flex items-center gap-3 pt-1">
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="text-[11px] text-[#047857] font-semibold flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-[#10B981] animate-ping" />
+                      <span>No action needed on this screen. Twilio telecommunications gateway is handling the bridge autonomously.</span>
+                    </div>
                     <button
                       onClick={handleEndCall}
-                      className="px-4 py-2 rounded-xl bg-[#3157FF] hover:bg-[#2745d8] text-white font-bold text-xs flex items-center gap-2 shadow-sm transition-all cursor-pointer"
+                      className="px-3 py-1.5 rounded-xl bg-[#171717] hover:bg-black text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
                     >
-                      <UserCheck className="w-4 h-4" />
-                      <span>Take Over Live & Close Deal (Bridge Connected)</span>
+                      <PhoneOff className="w-3.5 h-3.5" />
+                      <span>Finish & Save Call</span>
                     </button>
                   </div>
                 </div>
